@@ -10,6 +10,72 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  contracts:
+    name: Contracts — lint, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: contracts/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy drivesense_contracts
+
+      - name: Pytest
+        run: pytest -q
+
+  simulator:
+    name: Simulator — lint, types, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: simulator
+    env:
+      # Render tests exercise the real HUD without a display.
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: simulator/pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          pip install -e ../contracts
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Mypy
+        run: mypy drivesense_sim
+
+      - name: Pytest
+        run: pytest -q
+
   backend:
     name: Backend — lint, types, tests
     runs-on: ubuntu-latest

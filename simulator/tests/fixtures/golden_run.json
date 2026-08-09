@@ -1,0 +1,46 @@
+{
+  "frame_count": 327,
+  "digest_sha256": "86a7e46df84714454323276c7cbfe49d2d721446eff6d462de7c42a2c4e73a0b",
+  "gear_sequence": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "gear_changes": [
+    [
+      11,
+      1
+    ],
+    [
+      52,
+      2
+    ],
+    [
+      91,
+      3
+    ],
+    [
+      135,
+      4
+    ],
+    [
+      239,
+      3
+    ],
+    [
+      288,
+      0
+    ]
+  ],
+  "max_speed_kph": 65.6419,
+  "max_rpm": 6504.3374,
+  "max_accel_ms2": 2.9491,
+  "min_accel_ms2": -6.4217,
+  "max_abs_lateral_ms2": 8.4,
+  "final_distance_m": 279.9334,
+  "final_speed_kph": 0.0,
+  "final_rpm": 5890.3762,
+  "final_coolant_c": 43.9318
+}

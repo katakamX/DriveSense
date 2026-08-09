@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "drivesense-simulator"
+version = "0.1.0"
+description = "Interactive manual-transmission vehicle simulator producing DriveSense telemetry"
+requires-python = ">=3.12"
+# drivesense-contracts is a local path dependency: install it first with
+#   pip install -e ../contracts
+dependencies = [
+    "drivesense-contracts>=0.1.0",
+    "pydantic>=2.9",
+    "pygame-ce>=2.5",
+]
+
+[project.scripts]
+drivesense-sim = "drivesense_sim.__main__:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "ruff>=0.7", "mypy>=1.13"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["drivesense_sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["drivesense_contracts", "drivesense_sim"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["pygame.*"]
+ignore_missing_imports = true

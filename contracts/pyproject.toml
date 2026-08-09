@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "drivesense-contracts"
+version = "0.1.0"
+description = "Shared data contracts for DriveSense telemetry producers and consumers"
+requires-python = ">=3.12"
+# Pydantic is the ONLY runtime dependency. This package is imported by
+# telemetry producers (simulator, future OBD2 source) which must never be
+# forced to install the backend's web or database stack.
+dependencies = ["pydantic>=2.9"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "ruff>=0.7", "mypy>=1.13"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["drivesense_contracts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

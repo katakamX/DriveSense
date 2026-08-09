@@ -26,6 +26,11 @@ data/**
 !data/README.md
 ml/artifacts/
 
+# Simulator telemetry recordings — reproduce with `python -m drivesense_sim --headless`.
+# Matched at any depth: the default output path is relative to the working
+# directory, so recordings can land under simulator/ as well as the repo root.
+**/data/recordings/
+
 # Editors / OS
 .vscode/
 .idea/

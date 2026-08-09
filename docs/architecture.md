@@ -37,7 +37,8 @@ with meaningful trade-offs are recorded separately as ADRs in [`adr/`](adr/).
 
 | Component | Responsibility | Milestone |
 | --- | --- | --- |
-| `simulator/` | Physics-based telemetry generation with parameterised driver profiles. A **client** of the backend, not part of it. | 2 |
+| `contracts/` | `TelemetryFrame` and the producer-side `TelemetrySource`/`TelemetrySink` protocols. Pydantic only. | 2 |
+| `simulator/` | Interactive manual-transmission vehicle simulator. Pure physics core, pygame confined to input and rendering. A **client** of the backend, not part of it. | 2 |
 | `backend/app/api` | HTTP and WebSocket surface. Validation and serialisation only — no domain logic. | 3, 5 |
 | `backend/app/db` | SQLAlchemy models, migrations, repositories for non-trivial queries. | 3 |
 | `backend/app/core/windowing` | Bounded in-memory ring buffer per active trip. | 4 |
@@ -60,6 +61,9 @@ with meaningful trade-offs are recorded separately as ADRs in [`adr/`](adr/).
   → [ADR 0003](adr/0003-defer-redis.md)
 - **One feature implementation.** Training/serving skew is prevented
   structurally and asserted in CI. → [ADR 0004](adr/0004-shared-feature-engineering.md)
+- **Shared contracts package.** `TelemetryFrame` has one definition;
+  `TelemetrySource` is producer-side and the backend never imports it.
+  → [ADR 0005](adr/0005-shared-contracts-package.md)
 - **Plain PostgreSQL.** TimescaleDB is considered only if load testing at
   Milestone 4 shows it is needed.
 - **No authentication.** DriveSense is a single-tenant demonstration system.
@@ -86,8 +90,8 @@ benchmarking and deployment polish follow and must not block the core.
 
 | # | Milestone | Exit criterion |
 | --- | --- | --- |
-| 1 | Architecture, scaffold, Docker skeleton, CI | Stack starts; CI green | ✅ |
-| 2 | Telemetry simulator | Realistic trip data with driver profiles |
+| 1 | Architecture, scaffold, Docker skeleton, CI | Stack starts; CI green ✅ |
+| 2 | Interactive vehicle simulator + shared contracts | Driveable manual-transmission model; deterministic headless runs; JSONL recording ✅ |
 | 3 | FastAPI + PostgreSQL + migrations + CRUD | Core entities, OpenAPI published |
 | 4 | Ingest pipeline + batched persistence | 10 Hz sustained, verified in DB |
 | 5 | Event detection + thin WebSocket path | Live values in the browser |
