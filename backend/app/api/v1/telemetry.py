@@ -1,11 +1,13 @@
-"""Batched telemetry ingestion for a trip."""
+"""Batched telemetry ingestion for a trip, with inline driving-event detection."""
 
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Telemetry, Trip
+from app.config import get_settings
+from app.core.events import FrameSample, detect_events
+from app.db.models import DrivingEvent, Telemetry, Trip
 from app.db.session import get_db
 from app.schemas.telemetry import TelemetryBatchRequest, TelemetryBatchResponse
 
@@ -35,5 +37,30 @@ async def ingest_telemetry_batch(
         for frame in payload.frames
     ]
     db.add_all(rows)
+    await db.flush()  # assigns telemetry ids without committing, for event FK linkage
+
+    speed_limit_kph = float(trip.speed_limit_kph or get_settings().default_speed_limit_kph)
+    samples = [
+        FrameSample(
+            telemetry_id=row.id,
+            recorded_at=row.recorded_at,
+            accel_ms2=row.accel_ms2,
+            speed_kph=row.speed_kph,
+        )
+        for row in rows
+    ]
+    events = detect_events(samples, speed_limit_kph)
+    db.add_all(
+        DrivingEvent(
+            trip_id=trip_id,
+            telemetry_id=event.telemetry_id,
+            event_type=event.event_type,
+            occurred_at=event.recorded_at,
+            measured_value=event.measured_value,
+            threshold_value=event.threshold_value,
+        )
+        for event in events
+    )
+
     await db.commit()
     return TelemetryBatchResponse(accepted=len(rows))

@@ -13,12 +13,14 @@ class TripCreate(BaseModel):
     ended_at: datetime | None = None
     distance_km: float | None = None
     status: str = "in_progress"
+    speed_limit_kph: float | None = None
 
 
 class TripUpdate(BaseModel):
     ended_at: datetime | None = None
     distance_km: float | None = None
     status: str | None = None
+    speed_limit_kph: float | None = None
 
 
 class TripRead(BaseModel):
@@ -31,5 +33,6 @@ class TripRead(BaseModel):
     ended_at: datetime | None
     distance_km: float | None
     status: str
+    speed_limit_kph: float | None
     created_at: datetime
     updated_at: datetime

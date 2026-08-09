@@ -25,6 +25,10 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://drivesense:drivesense@localhost:5432/drivesense"
 
+    # Fallback speed limit for trips that don't set their own — a configured
+    # placeholder, not a claim about any real road's actual limit.
+    default_speed_limit_kph: float = 100.0
+
     # Origins allowed to call the API from a browser. The Vite dev server
     # proxies /api, so this matters mainly for direct cross-origin access.
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
