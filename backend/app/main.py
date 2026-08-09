@@ -6,14 +6,21 @@ lifespan. Milestone 1 establishes the shell — configuration, logging, CORS,
 routing, and clean engine disposal on shutdown.
 """
 
+import asyncio
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import health
+if sys.platform == "win32":
+    # psycopg's async driver requires a selector event loop; Windows defaults
+    # to ProactorEventLoop, which it cannot use.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+from app.api.v1 import drivers, health, trips, vehicles
 from app.config import get_settings
 from app.db.session import dispose_engine
 
@@ -54,6 +61,9 @@ def create_app() -> FastAPI:
 
     v1 = APIRouter(prefix=settings.api_prefix)
     v1.include_router(health.router)
+    v1.include_router(drivers.router)
+    v1.include_router(vehicles.router)
+    v1.include_router(trips.router)
     app.include_router(v1)
 
     return app

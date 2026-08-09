@@ -9,11 +9,12 @@ failing liveness check should restart it.
 
 import logging
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.db.session import get_engine
+from app.db.session import get_db
 from app.schemas.health import HealthResponse, ReadinessResponse
 
 logger = logging.getLogger(__name__)
@@ -33,8 +34,8 @@ async def health() -> HealthResponse:
 
 
 @router.get("/health/ready", response_model=ReadinessResponse)
-async def readiness(response: Response) -> ReadinessResponse:
-    database_ok = await _check_database()
+async def readiness(response: Response, db: AsyncSession = Depends(get_db)) -> ReadinessResponse:
+    database_ok = await _check_database(db)
     if not database_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return ReadinessResponse(
@@ -43,10 +44,9 @@ async def readiness(response: Response) -> ReadinessResponse:
     )
 
 
-async def _check_database() -> bool:
+async def _check_database(db: AsyncSession) -> bool:
     try:
-        async with get_engine().connect() as connection:
-            await connection.execute(text("SELECT 1"))
+        await db.execute(text("SELECT 1"))
     except Exception:
         logger.warning("Database readiness check failed", exc_info=True)
         return False

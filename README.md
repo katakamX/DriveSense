@@ -95,7 +95,8 @@ cd backend
 python -m venv .venv
 .venv/Scripts/activate          # Windows;  source .venv/bin/activate on Unix
 pip install -e ".[dev]"
-uvicorn app.main:app --reload
+python run.py                   # Windows — sets the event loop policy uvicorn needs for async psycopg
+uvicorn app.main:app --reload   # macOS/Linux
 ```
 
 **Frontend**

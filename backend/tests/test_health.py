@@ -1,14 +1,22 @@
 """Health endpoint tests.
 
-The readiness tests deliberately stub the database check rather than requiring
-a live PostgreSQL instance, so the unit suite stays fast and runnable in CI
-without services. Integration coverage against a real database arrives with
-Milestone 3.
+`/health/ready` checks the database via the `get_db` dependency, so the
+"unreachable" case is exercised by overriding `get_db` with a session stand-in
+that raises on `execute`, the same override pattern conftest.py's `client`
+fixture uses for the real DB connection.
 """
+
+from collections.abc import AsyncIterator
 
 from fastapi.testclient import TestClient
 
-from app.api.v1 import health
+from app.db.session import get_db
+from app.main import create_app
+
+
+class _RaisingSession:
+    async def execute(self, *args: object, **kwargs: object) -> None:
+        raise ConnectionError("database unreachable")
 
 
 def test_health_reports_ok(client: TestClient) -> None:
@@ -21,27 +29,23 @@ def test_health_reports_ok(client: TestClient) -> None:
     assert body["service"]
 
 
-def test_readiness_ok_when_database_reachable(client: TestClient, monkeypatch: object) -> None:
-    async def fake_check() -> bool:
-        return True
-
-    monkeypatch.setattr(health, "_check_database", fake_check)  # type: ignore[attr-defined]
-
+def test_readiness_ok_when_database_reachable(client: TestClient) -> None:
     response = client.get("/api/v1/health/ready")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready", "database": True}
 
 
-def test_readiness_returns_503_when_database_unreachable(
-    client: TestClient, monkeypatch: object
-) -> None:
-    async def fake_check() -> bool:
-        return False
+def test_readiness_returns_503_when_database_unreachable() -> None:
+    app = create_app()
 
-    monkeypatch.setattr(health, "_check_database", fake_check)  # type: ignore[attr-defined]
+    async def override_get_db() -> AsyncIterator[_RaisingSession]:
+        yield _RaisingSession()
 
-    response = client.get("/api/v1/health/ready")
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/health/ready")
+    app.dependency_overrides.clear()
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "database": False}
