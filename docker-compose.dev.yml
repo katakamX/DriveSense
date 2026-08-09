@@ -1,0 +1,33 @@
+# Development overlay. Adds source mounts, hot reload, and host-exposed ports
+# for the database and backend so local tooling can reach them.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+  db:
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+
+  backend:
+    build:
+      target: development
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
+    ports:
+      - '${BACKEND_PORT:-8000}:8000'
+
+  frontend:
+    build:
+      target: build
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    environment:
+      VITE_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    ports:
+      - '${VITE_PORT:-5173}:5173'

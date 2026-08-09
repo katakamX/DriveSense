@@ -1,0 +1,62 @@
+"""FastAPI application factory and process lifecycle.
+
+The backend is stream-oriented (see docs/adr/0001-stream-oriented-backend.md):
+later milestones attach an in-process telemetry pipeline to this application's
+lifespan. Milestone 1 establishes the shell — configuration, logging, CORS,
+routing, and clean engine disposal on shutdown.
+"""
+
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.v1 import health
+from app.config import get_settings
+from app.db.session import dispose_engine
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    logger.info("Starting %s v%s (%s)", settings.app_name, settings.version, settings.environment)
+    yield
+    await dispose_engine()
+    logger.info("Shutdown complete")
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    logging.basicConfig(
+        level=settings.log_level,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    )
+
+    app = FastAPI(
+        title=settings.app_name,
+        version=settings.version,
+        docs_url="/docs",
+        openapi_url="/openapi.json",
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    v1 = APIRouter(prefix=settings.api_prefix)
+    v1.include_router(health.router)
+    app.include_router(v1)
+
+    return app
+
+
+app = create_app()

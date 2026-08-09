@@ -1,0 +1,30 @@
+/**
+ * DriveSense design tokens.
+ *
+ * The product is a dark-first automotive instrument surface: a near-black
+ * ground, a small number of elevated surfaces, one accent colour, and a
+ * four-step risk scale that maps directly to the risk engine's levels.
+ * Risk is never communicated by colour alone — components pair these with
+ * text labels for accessibility.
+ */
+
+:root {
+  --surface-base: #08090c;
+  --surface-raised: #0f1116;
+  --surface-overlay: #161922;
+
+  --border-subtle: #1e222c;
+  --border-strong: #2b3040;
+
+  --content-primary: #e8eaf0;
+  --content-secondary: #9aa1b1;
+  --content-muted: #5f6675;
+
+  --accent: #22d3ee;
+  --accent-muted: #0e7490;
+
+  --risk-low: #34d399;
+  --risk-moderate: #fbbf24;
+  --risk-high: #fb923c;
+  --risk-critical: #f43f5e;
+}

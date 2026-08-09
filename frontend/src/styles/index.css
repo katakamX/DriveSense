@@ -1,0 +1,21 @@
+@import './tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-surface-base text-content-primary antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Telemetry readouts must not jitter as digits change. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
