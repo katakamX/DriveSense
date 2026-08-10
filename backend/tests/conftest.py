@@ -17,7 +17,9 @@ if sys.platform == "win32":
 async def db_session() -> AsyncIterator[AsyncSession]:
     connection = await engine.connect()
     transaction = await connection.begin()
-    session_factory = async_sessionmaker(bind=connection, expire_on_commit=False, join_transaction_mode="create_savepoint")
+    session_factory = async_sessionmaker(
+        bind=connection, expire_on_commit=False, join_transaction_mode="create_savepoint"
+    )
     session = session_factory()
 
     try:

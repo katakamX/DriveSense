@@ -40,6 +40,12 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Depends()/Query() as argument defaults is FastAPI's documented DI pattern,
+# not the eager-call bug B008 exists to catch. Scoped to the router files so
+# B008 keeps catching genuine mistakes elsewhere.
+"app/api/**" = ["B008"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

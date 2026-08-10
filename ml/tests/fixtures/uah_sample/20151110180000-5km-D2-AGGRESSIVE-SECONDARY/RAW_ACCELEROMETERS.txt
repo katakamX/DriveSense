@@ -1,0 +1,13 @@
+# SYNTHETIC TEST FIXTURE - NOT REAL UAH-DriveSet DATA.
+# Fabricated for DriveSense unit tests. Column layout matches UAH-DriveSet;
+# values are hand-constructed so the ground-truth axis mapping is known:
+#   Z (col 4) = longitudinal, Y (col 3) = lateral, X (col 2) = uncorrelated.
+# Deliberately contains malformed rows: short row, non-numeric field,
+# and a blank line. The adapter must skip these and keep the rest.
+0.0 1 0.010000 0.020000 0.101972 0.010000 0.020000 0.101972 0.5000 -1.2000 45.0000
+0.1 1 0.011000 0.021000 0.203944 0.011000 0.021000 0.203944 0.5000 -1.2000 45.3000
+0.2 1 0.012000
+0.3 1 0.013000 0.023000 0.305916 0.013000 0.023000 0.305916 0.5000 -1.2000 45.9000
+0.4 1 abc 0.024000 0.407888 0.014000 0.024000 0.407888 0.5000 -1.2000 46.2000
+
+0.5 1 0.015000 0.025000 0.509860 0.015000 0.025000 0.509860 0.5000 -1.2000 46.5000

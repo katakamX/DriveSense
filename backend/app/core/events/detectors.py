@@ -35,7 +35,9 @@ class DetectedEvent:
 
 def detect_harsh_braking(frames: list[FrameSample]) -> list[DetectedEvent]:
     return [
-        DetectedEvent(f.telemetry_id, f.recorded_at, "harsh_braking", f.accel_ms2, HARSH_BRAKING_ACCEL_MS2)
+        DetectedEvent(
+            f.telemetry_id, f.recorded_at, "harsh_braking", f.accel_ms2, HARSH_BRAKING_ACCEL_MS2
+        )
         for f in frames
         if f.accel_ms2 <= HARSH_BRAKING_ACCEL_MS2
     ]
@@ -44,7 +46,11 @@ def detect_harsh_braking(frames: list[FrameSample]) -> list[DetectedEvent]:
 def detect_rapid_acceleration(frames: list[FrameSample]) -> list[DetectedEvent]:
     return [
         DetectedEvent(
-            f.telemetry_id, f.recorded_at, "rapid_acceleration", f.accel_ms2, RAPID_ACCELERATION_ACCEL_MS2
+            f.telemetry_id,
+            f.recorded_at,
+            "rapid_acceleration",
+            f.accel_ms2,
+            RAPID_ACCELERATION_ACCEL_MS2,
         )
         for f in frames
         if f.accel_ms2 >= RAPID_ACCELERATION_ACCEL_MS2

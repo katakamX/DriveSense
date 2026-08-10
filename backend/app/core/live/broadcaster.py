@@ -8,20 +8,22 @@ version — full backpressure hardening is M11).
 """
 
 import asyncio
+import contextlib
 import uuid
+from typing import Any
 
 _QUEUE_MAXSIZE = 100
 
-_subscribers: dict[uuid.UUID, set[asyncio.Queue]] = {}
+_subscribers: dict[uuid.UUID, set[asyncio.Queue[dict[str, Any]]]] = {}
 
 
-def subscribe(trip_id: uuid.UUID) -> asyncio.Queue:
-    queue: asyncio.Queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+def subscribe(trip_id: uuid.UUID) -> asyncio.Queue[dict[str, Any]]:
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
     _subscribers.setdefault(trip_id, set()).add(queue)
     return queue
 
 
-def unsubscribe(trip_id: uuid.UUID, queue: asyncio.Queue) -> None:
+def unsubscribe(trip_id: uuid.UUID, queue: asyncio.Queue[dict[str, Any]]) -> None:
     queues = _subscribers.get(trip_id)
     if queues is None:
         return
@@ -30,17 +32,13 @@ def unsubscribe(trip_id: uuid.UUID, queue: asyncio.Queue) -> None:
         del _subscribers[trip_id]
 
 
-def publish(trip_id: uuid.UUID, message: dict) -> None:
+def publish(trip_id: uuid.UUID, message: dict[str, Any]) -> None:
     for queue in _subscribers.get(trip_id, ()):
         if queue.full():
-            try:
+            with contextlib.suppress(asyncio.QueueEmpty):
                 queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait(message)
-        except asyncio.QueueFull:
-            pass
 
 
 def subscriber_count(trip_id: uuid.UUID) -> int:

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "drivesense-ml"
+version = "0.1.0"
+description = "DriveSense offline ML pipeline — fetch, adapt, window, featurise, label, train"
+requires-python = ">=3.12"
+# Feature engineering is imported from the backend, never reimplemented here
+# (ADR 0004). Install the backend editable alongside this package.
+dependencies = [
+    "drivesense-backend",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pipelines"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
