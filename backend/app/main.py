@@ -20,7 +20,7 @@ if sys.platform == "win32":
     # to ProactorEventLoop, which it cannot use.
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from app.api.v1 import drivers, health, telemetry, trips, vehicles
+from app.api.v1 import drivers, health, live, telemetry, trips, vehicles
 from app.config import get_settings
 from app.db.session import dispose_engine
 
@@ -65,6 +65,7 @@ def create_app() -> FastAPI:
     v1.include_router(vehicles.router)
     v1.include_router(trips.router)
     v1.include_router(telemetry.router)
+    v1.include_router(live.router)
     app.include_router(v1)
 
     return app

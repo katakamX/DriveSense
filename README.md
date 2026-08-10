@@ -95,9 +95,23 @@ cd backend
 python -m venv .venv
 .venv/Scripts/activate          # Windows;  source .venv/bin/activate on Unix
 pip install -e ".[dev]"
-python run.py                   # Windows — sets the event loop policy uvicorn needs for async psycopg
+
+# Windows — recommended, frees the port first (see below)
+powershell -ExecutionPolicy Bypass -File scripts/dev_server.ps1
+
 uvicorn app.main:app --reload   # macOS/Linux
 ```
+
+On Windows `uvicorn --reload` runs the application in a spawned child process.
+Kill the reloader with its terminal and the child survives, keeps the listening
+socket, and keeps answering requests — while the socket table still credits the
+port to the parent PID, which no longer exists. The next start then loses the
+bind, the error scrolls past, and requests keep hitting the stale process, so
+tests pass against code that is no longer running.
+[`scripts/dev_server.ps1`](backend/scripts/dev_server.ps1) clears that state and
+refuses to start if the port is still answering. `python run.py` starts the
+server directly, without the cleanup — it also sets the event loop policy
+uvicorn needs for async psycopg.
 
 **Frontend**
 

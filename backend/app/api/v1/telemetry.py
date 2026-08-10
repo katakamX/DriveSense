@@ -7,8 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.events import FrameSample, detect_events
+from app.core.live import publish
 from app.db.models import DrivingEvent, Telemetry, Trip
 from app.db.session import get_db
+from app.schemas.live import LiveMessage
 from app.schemas.telemetry import TelemetryBatchRequest, TelemetryBatchResponse
 
 router = APIRouter(prefix="/trips/{trip_id}/telemetry", tags=["telemetry"])
@@ -50,7 +52,7 @@ async def ingest_telemetry_batch(
         for row in rows
     ]
     events = detect_events(samples, speed_limit_kph)
-    db.add_all(
+    event_rows = [
         DrivingEvent(
             trip_id=trip_id,
             telemetry_id=event.telemetry_id,
@@ -60,7 +62,38 @@ async def ingest_telemetry_batch(
             threshold_value=event.threshold_value,
         )
         for event in events
-    )
+    ]
+    db.add_all(event_rows)
 
     await db.commit()
+
+    for row in rows:
+        publish(
+            trip_id,
+            LiveMessage(
+                type="telemetry",
+                data={
+                    "recorded_at": row.recorded_at.isoformat(),
+                    "speed_kph": row.speed_kph,
+                    "accel_ms2": row.accel_ms2,
+                    "lateral_accel_ms2": row.lateral_accel_ms2,
+                    "lat": row.lat,
+                    "lon": row.lon,
+                },
+            ).model_dump(mode="json"),
+        )
+    for event_row in event_rows:
+        publish(
+            trip_id,
+            LiveMessage(
+                type="event",
+                data={
+                    "event_type": event_row.event_type,
+                    "occurred_at": event_row.occurred_at.isoformat(),
+                    "measured_value": event_row.measured_value,
+                    "threshold_value": event_row.threshold_value,
+                },
+            ).model_dump(mode="json"),
+        )
+
     return TelemetryBatchResponse(accepted=len(rows))
