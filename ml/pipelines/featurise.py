@@ -58,6 +58,7 @@ from pipelines.adapters import recordings as sim_adapter
 from pipelines.adapters import uah as uah_adapter
 from pipelines.fetch_uah import git_sha
 from pipelines.labeling.rubric import label_window_with_reason
+from pipelines.split import drive_variant
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -332,20 +333,6 @@ def featurise_uah(
     )
 
 
-def _drive_variant(recording_id: str) -> str:
-    """`high_risk-c-seed1204` -> `high_risk-c`; anything else unchanged.
-
-    The simulator encodes profile, variant and seed in the trip id (see
-    `drivesense_sim.__main__.default_trip_id`). Only the profile+variant part
-    identifies the *script*, which is the unit a by-driver-profile split has
-    to keep on one side (ADR 0006) — seeds of one script are the same driving.
-    """
-    parts = recording_id.rsplit("-", 1)
-    if len(parts) == 2 and parts[1].startswith("seed"):
-        return parts[0]
-    return recording_id
-
-
 def _sha256_of_files(paths: list[Path]) -> str:
     """Digest identifying exactly which recording bytes this run consumed.
 
@@ -411,7 +398,10 @@ def featurise_sim(
         kept += recording_kept
         rejected += recording_rejected
         driver_window_counts[meta.driver_id or "unknown"] += recording_kept
-        variant_window_counts[_drive_variant(meta.recording_id)] += recording_kept
+        # `pipelines.split` owns this parse: the same rule decides what counts
+        # as one drive here and what stays on one side of a fold there, and two
+        # copies of it would be free to drift apart.
+        variant_window_counts[drive_variant(meta.recording_id)] += recording_kept
         for row in recording_rows:
             rubric_label_counts[str(row["rubric_label"])] += 1
 

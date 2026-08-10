@@ -1,0 +1,58 @@
+# M8 training configuration, version 1.
+#
+# Every number that changes what the committed metrics mean lives here rather
+# than in the code, so a reviewer can diff the configuration against the report
+# it produced. `ml/reports/m8-evaluation.md` records the config version it was
+# generated from.
+
+config_version: 1
+
+# Seeds. `variant_shuffle_seed` fixes which drive variant lands in which fold
+# (see pipelines.split); `model_random_state` fixes scikit-learn's own
+# tie-breaking. Both are arbitrary but pinned, so a rerun reproduces the report.
+variant_shuffle_seed: 20260810
+model_random_state: 20260810
+
+split:
+  # 3 folds is not a tuning choice: calm, normal and aggressive have exactly
+  # three script variants each, and a fold that held out no variant of a class
+  # could not score that class at all. See pipelines.split's module docstring.
+  n_folds: 3
+
+features:
+  # ADR 0004: the model's inputs are the shared FEATURE_NAMES, minus the
+  # exclusions below. Nothing is added here that inference cannot compute.
+  exclude:
+    rapid_accel_per_min: >-
+      Identically 0.0 at every percentile and every maximum across all 1,709
+      UAH validation windows, while reaching 36.1/min on the simulator
+      (ml/reports/m7b-simulator-generation-pilot-and-bulk.md, finding (a)).
+      The 3.0 m/s^2 RAPID_ACCELERATION threshold is simply never crossed by
+      real phone-accelerometer telemetry in this corpus, so the feature
+      carries simulator-only signal: a model leaning on it would score well
+      on simulator folds and lose exactly that much on UAH, for a reason that
+      has nothing to do with driving. Excluded deliberately rather than
+      silently — see docs/model-card.md.
+
+models:
+  # The bar from ml/README.md: "A model that cannot beat logistic regression
+  # is a finding worth reporting, not hiding."
+  logistic_regression:
+    solver: lbfgs
+    C: 1.0
+    max_iter: 2000
+    # HIGH_RISK is 12.1% of the training corpus and 0.9% of UAH. Reweighting
+    # at fit time is preferred to resampling, which would duplicate
+    # 50%-overlapping near-identical windows — the exact leak the grouped
+    # split exists to prevent.
+    class_weight: balanced
+
+  # The "can anything beat it" comparison. Depth and leaf size are capped
+  # rather than tuned: an unconstrained tree memorises 827 windows, and there
+  # is no inner validation loop here to tune against without spending the
+  # held-out folds that the reported metrics depend on.
+  decision_tree:
+    criterion: gini
+    max_depth: 6
+    min_samples_leaf: 20
+    class_weight: balanced

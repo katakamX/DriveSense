@@ -1,0 +1,124 @@
+{
+  "manifest_version": "1",
+  "n_folds": 3,
+  "variant_shuffle_seed": 20260810,
+  "excluded_recordings": [
+    "sim-demo"
+  ],
+  "source_parquet": "features_sim_v1.parquet",
+  "generated_at": "2026-08-10T15:44:01.587677+00:00",
+  "git_sha": "66a0e7b6737e8492c47f16e2b65d9e5d1922774d",
+  "folds": [
+    {
+      "fold": 0,
+      "test_variants": [
+        "aggressive-b",
+        "calm-a",
+        "high_risk-a",
+        "high_risk-b",
+        "normal-b"
+      ],
+      "test_recordings": [
+        "aggressive-b-seed1100",
+        "aggressive-b-seed1101",
+        "aggressive-b-seed1102",
+        "aggressive-b-seed1103",
+        "aggressive-b-seed1104",
+        "aggressive-b-seed1105",
+        "calm-a-seed1000",
+        "calm-a-seed1001",
+        "calm-a-seed1002",
+        "calm-a-seed1003",
+        "calm-a-seed1004",
+        "calm-a-seed1005",
+        "high_risk-a-seed1000",
+        "high_risk-a-seed1001",
+        "high_risk-a-seed1002",
+        "high_risk-a-seed1003",
+        "high_risk-a-seed1004",
+        "high_risk-b-seed1100",
+        "high_risk-b-seed1101",
+        "high_risk-b-seed1102",
+        "high_risk-b-seed1103",
+        "high_risk-b-seed1104",
+        "normal-b-seed1100",
+        "normal-b-seed1101",
+        "normal-b-seed1102",
+        "normal-b-seed1103",
+        "normal-b-seed1104",
+        "normal-b-seed1105"
+      ],
+      "test_windows": 299
+    },
+    {
+      "fold": 1,
+      "test_variants": [
+        "aggressive-a",
+        "calm-b",
+        "high_risk-d",
+        "normal-a"
+      ],
+      "test_recordings": [
+        "aggressive-a-seed1000",
+        "aggressive-a-seed1001",
+        "aggressive-a-seed1002",
+        "aggressive-a-seed1003",
+        "aggressive-a-seed1004",
+        "aggressive-a-seed1005",
+        "calm-b-seed1100",
+        "calm-b-seed1101",
+        "calm-b-seed1102",
+        "calm-b-seed1103",
+        "calm-b-seed1104",
+        "calm-b-seed1105",
+        "high_risk-d-seed1300",
+        "high_risk-d-seed1301",
+        "high_risk-d-seed1302",
+        "high_risk-d-seed1303",
+        "high_risk-d-seed1304",
+        "normal-a-seed1000",
+        "normal-a-seed1001",
+        "normal-a-seed1002",
+        "normal-a-seed1003",
+        "normal-a-seed1004",
+        "normal-a-seed1005"
+      ],
+      "test_windows": 270
+    },
+    {
+      "fold": 2,
+      "test_variants": [
+        "aggressive-c",
+        "calm-c",
+        "high_risk-c",
+        "normal-c"
+      ],
+      "test_recordings": [
+        "aggressive-c-seed1200",
+        "aggressive-c-seed1201",
+        "aggressive-c-seed1202",
+        "aggressive-c-seed1203",
+        "aggressive-c-seed1204",
+        "aggressive-c-seed1205",
+        "calm-c-seed1200",
+        "calm-c-seed1201",
+        "calm-c-seed1202",
+        "calm-c-seed1203",
+        "calm-c-seed1204",
+        "calm-c-seed1205",
+        "high_risk-c-seed1200",
+        "high_risk-c-seed1201",
+        "high_risk-c-seed1202",
+        "high_risk-c-seed1203",
+        "high_risk-c-seed1204",
+        "normal-c-seed1200",
+        "normal-c-seed1201",
+        "normal-c-seed1202",
+        "normal-c-seed1203",
+        "normal-c-seed1204",
+        "normal-c-seed1205"
+      ],
+      "test_windows": 258
+    }
+  ]
+}

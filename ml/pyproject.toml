@@ -13,6 +13,8 @@ dependencies = [
     "drivesense-backend",
     "pandas>=2.2",
     "pyarrow>=17",
+    "scikit-learn>=1.5",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +23,7 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "pandas-stubs>=2.2",
+    "types-PyYAML>=6.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -40,3 +43,12 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+# scikit-learn ships no type information. Rather than let that leak `Any`
+# through the pipeline, training code converts every estimator output to a
+# concrete type at the boundary (`float(...)`, `str(...)`, `np.asarray(...)`)
+# before it goes anywhere — and `pipelines.artifact`, the half the backend will
+# import, does not depend on scikit-learn at all.
+[[tool.mypy.overrides]]
+module = ["sklearn.*"]
+ignore_missing_imports = true
