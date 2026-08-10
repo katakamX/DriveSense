@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -18,17 +19,22 @@ import pytest
 
 from pipelines.adapters.uah import (
     G_TO_MS2,
+    MIN_DETECTION_CORRELATION,
+    AccelRow,
     AxisMapping,
+    GpsRow,
     UahParseError,
     build_samples,
+    course_rates_dps,
+    dataset_axis_mapping,
     detect_axis_mapping,
     find_recordings,
     load_recording,
     parse_accelerometer_file,
     parse_gps_file,
     parse_recording_name,
+    usable_fixes,
     wrap_degrees,
-    yaw_rates_dps,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "uah_sample"
@@ -39,6 +45,10 @@ REAL_DATA = Path(__file__).resolve().parents[2] / "data" / "raw" / "uah-driveset
 
 def _all_recordings() -> list[Path]:
     return find_recordings(FIXTURES) + find_recordings(REAL_DATA)
+
+
+def _real_recordings() -> list[Path]:
+    return find_recordings(REAL_DATA)
 
 
 # --- Directory naming -----------------------------------------------------
@@ -70,18 +80,47 @@ def test_wrap_degrees(delta: float, expected: float) -> None:
     assert wrap_degrees(delta) == pytest.approx(expected)
 
 
-def test_yaw_rate_handles_the_180_degree_wraparound() -> None:
-    rows, _ = parse_accelerometer_file(CLEAN / "RAW_ACCELEROMETERS.txt")
-    rates = yaw_rates_dps(rows)
+def test_course_rate_handles_the_360_degree_wraparound() -> None:
+    # Feature 21's source is GPS course, not the accelerometer yaw column.
+    gps_rows, _ = parse_gps_file(CLEAN / "RAW_GPS.txt")
+    rates = course_rates_dps(gps_rows)
 
-    # The fixture crosses +/-180 during the turning phase at a bounded rate.
-    # Without wraparound handling the crossing produces a ~3600 deg/s spike.
-    assert rates, "expected yaw rates to be derived"
+    # The fixture's heading crosses the 0/360 boundary while turning at a
+    # bounded rate. Without wraparound handling that crossing registers as a
+    # ~360 deg/s spike.
+    assert rates, "expected course rates to be derived"
     assert max(abs(rate) for _, rate in rates) < 20.0
 
-    crossing = [rate for t, rate in rates if 12.5 <= t <= 13.5]
-    assert crossing
-    assert all(0.0 < rate < 20.0 for rate in crossing)
+
+def test_difcourse_column_is_parsed_but_not_used_for_rates() -> None:
+    # difcourse correlates only -0.39 with the recomputed course delta on real
+    # data, so it is read for completeness and deliberately not trusted.
+    gps_rows, _ = parse_gps_file(CLEAN / "RAW_GPS.txt")
+    rates = dict(course_rates_dps(gps_rows))
+
+    for prev, cur in zip(gps_rows, gps_rows[1:], strict=False):
+        dt = cur.t - prev.t
+        if cur.t in rates and dt > 0:
+            expected = wrap_degrees(cur.course_deg - prev.course_deg) / dt
+            assert rates[cur.t] == pytest.approx(expected)
+
+
+def test_low_quality_gps_fixes_are_discarded() -> None:
+    gps_rows, _ = parse_gps_file(CLEAN / "RAW_GPS.txt")
+    poor = GpsRow(
+        t=99.0,
+        speed_kph=0.0,
+        latitude=40.5,
+        longitude=-3.3,
+        course_deg=-1.0,
+        horizontal_accuracy_m=201.0,
+    )
+
+    kept = usable_fixes([*gps_rows, poor])
+
+    assert poor not in kept
+    assert len(kept) == len(gps_rows)
+    assert all(f.is_usable for f in kept)
 
 
 # --- Unit conversion ------------------------------------------------------
@@ -206,8 +245,39 @@ def test_axis_detection_identifies_distinct_longitudinal_and_lateral_channels(
         pytest.skip(f"{recording.name}: insufficient data to detect axes ({exc})")
 
     assert detection.mapping.longitudinal != detection.mapping.lateral
-    assert detection.longitudinal_strength >= 0.5
-    assert detection.lateral_strength >= 0.5
+    assert detection.longitudinal_strength >= MIN_DETECTION_CORRELATION
+    assert detection.lateral_strength >= MIN_DETECTION_CORRELATION
+
+
+@pytest.mark.parametrize("recording", _real_recordings(), ids=lambda p: p.name)
+def test_real_recordings_never_disagree_on_the_axis_mapping(recording: Path) -> None:
+    """No recording may contradict the dataset mapping.
+
+    Motorway drives contain too little cornering to resolve lateral on their
+    own, so refusing is allowed; asserting a *different* mapping is not.
+    """
+    accel_rows, _ = parse_accelerometer_file(recording / "RAW_ACCELEROMETERS.txt")
+    gps_rows, _ = parse_gps_file(recording / "RAW_GPS.txt")
+
+    try:
+        detection = detect_axis_mapping(accel_rows, gps_rows)
+    except UahParseError as exc:
+        pytest.skip(f"{recording.name}: not resolvable alone ({exc})")
+
+    assert detection.mapping.longitudinal == "Z"
+    assert detection.mapping.lateral == "Y"
+
+
+@pytest.mark.skipif(not _real_recordings(), reason="real UAH dataset not present")
+def test_dataset_axis_consensus_is_unanimous() -> None:
+    consensus = dataset_axis_mapping(_real_recordings())
+
+    assert consensus.mapping.longitudinal == "Z"
+    assert consensus.mapping.lateral == "Y"
+    # Unanimous among recordings that can resolve it — no split vote.
+    assert set(consensus.longitudinal_votes) == {"Z"}
+    assert set(consensus.lateral_votes) == {"Y"}
+    assert consensus.agreeing >= 30
 
 
 def test_axis_detection_recovers_the_fixtures_known_ground_truth() -> None:
@@ -232,17 +302,7 @@ def test_axis_detection_recovers_the_fixtures_known_ground_truth() -> None:
 def test_axis_detection_recovers_an_inverted_mounting() -> None:
     accel_rows, _ = parse_accelerometer_file(CLEAN / "RAW_ACCELEROMETERS.txt")
     gps_rows, _ = parse_gps_file(CLEAN / "RAW_GPS.txt")
-    flipped = [
-        type(row)(
-            t=row.t,
-            activation=row.activation,
-            x_g=row.x_g,
-            y_g=row.y_g,
-            z_g=-row.z_g,
-            yaw_deg=row.yaw_deg,
-        )
-        for row in accel_rows
-    ]
+    flipped = [replace(row, z_g=-row.z_g, z_kf_g=-row.z_kf_g) for row in accel_rows]
 
     detection = detect_axis_mapping(flipped, gps_rows)
 
@@ -250,16 +310,35 @@ def test_axis_detection_recovers_an_inverted_mounting() -> None:
     assert detection.mapping.longitudinal_sign == -1.0
 
 
-def test_axis_detection_refuses_when_no_straight_driving_exists() -> None:
-    # Only the turning half of the fixture: every interval is cornering, so
-    # the longitudinal channel cannot be identified and guessing is refused.
+def test_axis_detection_refuses_uncorrelated_channels() -> None:
+    # Accelerometer channels that carry no relationship to the GPS-derived
+    # references must be refused, not assigned to whichever noise wins.
+    gps_rows, _ = parse_gps_file(CLEAN / "RAW_GPS.txt")
+    noise = [
+        AccelRow(
+            t=i * 0.1,
+            activation=True,
+            x_g=0.01 * math.sin(i * 1.1),
+            y_g=0.01 * math.sin(i * 2.3),
+            z_g=0.01 * math.sin(i * 3.7),
+            yaw=0.0,
+            x_kf_g=0.01 * math.sin(i * 1.1),
+            y_kf_g=0.01 * math.sin(i * 2.3),
+            z_kf_g=0.01 * math.sin(i * 3.7),
+        )
+        for i in range(200)
+    ]
+
+    with pytest.raises(UahParseError, match="ambiguous"):
+        detect_axis_mapping(noise, gps_rows)
+
+
+def test_axis_detection_refuses_when_there_are_too_few_usable_fixes() -> None:
     accel_rows, _ = parse_accelerometer_file(CLEAN / "RAW_ACCELEROMETERS.txt")
     gps_rows, _ = parse_gps_file(CLEAN / "RAW_GPS.txt")
-    turning_accel = [r for r in accel_rows if r.t >= 10.0]
-    turning_gps = [r for r in gps_rows if r.t >= 10.0]
 
-    with pytest.raises(UahParseError, match="near-straight"):
-        detect_axis_mapping(turning_accel, turning_gps)
+    with pytest.raises(UahParseError, match="usable GPS fixes"):
+        detect_axis_mapping(accel_rows, gps_rows[:3])
 
 
 # --- End-to-end -----------------------------------------------------------
