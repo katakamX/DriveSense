@@ -9,6 +9,11 @@
   never fired; see "UAH-calibrated thresholds" below). This amendment also
   corrects an overclaim in the original text: UAH was not, in fact, left
   fully untouched by the rubric's development.
+- **Amended:** 2026-08-10 (second) — `app.core.events.detectors` now
+  debounces impulse events, which changes what `harsh_braking_per_min`
+  counts. See "What an event counts" below. The rubric's two
+  `harsh_braking_per_min` cutoffs are consequently **known-stale pending
+  recalibration**; the wording is corrected here, the numbers are not yet.
 
 ## Context
 
@@ -119,6 +124,46 @@ human-authored, interpretable rule thresholds, in a one-time step, before
 any model existed to evaluate. That is a materially different — and
 weaker — claim than "the rubric never saw UAH data," and this ADR no
 longer states the stronger one.
+
+### What an event counts (amended)
+
+The original text of this ADR described the `harsh_braking_per_min` rules as
+counting "harsh brakes". That was wrong at the time of writing:
+`app.core.events.detectors` emitted one `DetectedEvent` per *frame* past
+−3.5 m/s², so at 10 Hz a single one-second brake application counted as ten
+events, and the rule described as "3 or more harsh brakes" actually meant
+"3 or more harsh-braking **frames**", i.e. roughly 0.3 s of sustained
+deceleration.
+
+That was not merely imprecise wording — it made the same threshold mean
+different things on different corpora. Clean simulator physics holds a
+deceleration past the line for the whole brake (one brake → ~20 events);
+noisy real accelerometer telemetry dips past it for isolated single samples
+(one brake → several unrelated single-frame events, or none). The measured
+gap was 3.6× at the maximum, with the two corpora differing far more in
+distribution shape than that ratio suggests.
+
+The detector now **debounces**: a crossing must persist for a minimum number
+of frames before it opens an event, and must recover past a nearer release
+threshold for a minimum number of frames before it closes. One brake
+application is therefore one event, however long it lasts, and isolated
+noise dips are not events at all. `harsh_braking_per_min` and
+`rapid_accel_per_min` now count brake and throttle *applications*, and the
+wording throughout this ADR should be read that way.
+
+Speeding is deliberately **not** debounced: it is a sustained state rather
+than an impulse, and `speeding_time_ratio` divides its per-frame count by
+the frame count to obtain a time fraction. Coalescing it would silently
+convert that feature from a time fraction into an event rate.
+
+**Consequence, stated plainly:** the two `harsh_braking_per_min` cutoffs
+recorded in the section above (`>=6.0` for HIGH_RISK, `>=2.0` for
+AGGRESSIVE) were derived from the *old* per-frame counts and are now an
+order of magnitude too high. They are left unchanged for the moment, and
+flagged as stale in `rubric.py` itself, because recalibrating them requires
+a fresh percentile pass over regenerated features — the same evidence-first
+process this ADR describes, not a guess. Any label produced between this
+amendment and that recalibration under-reports HIGH_RISK and AGGRESSIVE.
 
 ### Per-trip and per-driver-profile splits (already committed, restated here)
 

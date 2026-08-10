@@ -6,9 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Trip
+from app.core.events import discard_trip, flush_trip
+from app.core.live import publish
+from app.db.models import DrivingEvent, Trip
 from app.db.session import get_db
+from app.schemas.live import LiveMessage
 from app.schemas.trip import TripCreate, TripRead, TripUpdate
+
+# A trip in one of these is over, so any event still open in the debounce
+# state machine has to be closed and persisted rather than left dangling.
+TERMINAL_TRIP_STATUSES = frozenset({"completed", "ended", "aborted", "cancelled"})
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -58,10 +65,42 @@ async def update_trip(
     trip = await db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trip not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(trip, field, value)
+
+    ending = changes.get("ended_at") is not None or (
+        changes.get("status") in TERMINAL_TRIP_STATUSES
+    )
+    trailing = flush_trip(trip_id) if ending else []
+    for event in trailing:
+        db.add(
+            DrivingEvent(
+                trip_id=trip_id,
+                telemetry_id=event.telemetry_id,
+                event_type=event.event_type,
+                occurred_at=event.recorded_at,
+                measured_value=event.measured_value,
+                threshold_value=event.threshold_value,
+            )
+        )
+
     await db.commit()
     await db.refresh(trip)
+
+    for event in trailing:
+        publish(
+            trip_id,
+            LiveMessage(
+                type="event",
+                data={
+                    "event_type": event.event_type,
+                    "occurred_at": event.recorded_at.isoformat(),
+                    "measured_value": event.measured_value,
+                    "threshold_value": event.threshold_value,
+                },
+            ).model_dump(mode="json"),
+        )
     return trip
 
 
@@ -72,3 +111,4 @@ async def delete_trip(trip_id: uuid.UUID, db: AsyncSession = Depends(get_db)) ->
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trip not found")
     await db.delete(trip)
     await db.commit()
+    discard_trip(trip_id)

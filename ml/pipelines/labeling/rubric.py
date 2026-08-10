@@ -25,6 +25,16 @@ max; `accel_std >= 1.5` exceeded the global UAH max of 1.311) and have been
 replaced with a feature that measures the same underlying behaviour but
 actually varies in real data. Each rule's comment states which anchor it
 still traces to, or which empirical percentile replaced it.
+
+**The two `harsh_braking_per_min` cutoffs are known-stale.** They were
+calibrated when `app.core.events.detectors` counted one event per *frame*
+past the threshold; the detector now debounces, so one brake application is
+one event regardless of duration and the same driving yields roughly an
+order of magnitude fewer events. The rule comments say so individually. The
+numbers are deliberately left untouched here — recalibrating them needs a
+fresh percentile pass over regenerated features, which is its own task, and
+changing them by guesswork in the meantime would be worse than a documented
+known-stale value.
 """
 
 from __future__ import annotations
@@ -37,11 +47,19 @@ Label = Literal["CALM", "NORMAL", "AGGRESSIVE", "HIGH_RISK"]
 
 # --- HIGH_RISK --------------------------------------------------------------
 
-# harsh_braking_per_min is quantized at ~2.008/event (one event in a 30s
-# window). >=6.0 means "3 or more harsh brakes (<= -3.5 m/s^2,
-# HARSH_BRAKING_ACCEL_MS2) in one window" — a driving *style*, not an
-# occasional hard stop. >=4.0 (2 events) left no headroom for the
-# AGGRESSIVE >=2.0 (1 event) rule below it; UAH: 14 windows, 0 on `normal`.
+# >=6.0 means "3 or more harsh-braking events per minute", i.e. 3+ in a 30s
+# window — a driving *style*, not an occasional hard stop. >=4.0 (2 events)
+# left no headroom for the AGGRESSIVE >=2.0 (1 event) rule below it.
+#
+# STALE CALIBRATION — these numbers predate debouncing. They were derived
+# when `app.core.events.detectors` emitted one event per *frame* past
+# -3.5 m/s^2, so what this rule counted was harsh-braking frames (quantized
+# at ~2.008/min, one 10 Hz frame in a 30s window), not brake applications.
+# The detector now debounces (minimum duration + hysteresis), so one brake
+# is one event however long it lasts, and these cutoffs are an order of
+# magnitude too high against the new counts. Recalibration against fresh
+# percentiles is a tracked follow-up; the wording here is corrected now so
+# the two do not stay out of step silently.
 HIGH_RISK_HARSH_BRAKING_PER_MIN = 6.0
 
 # Sustained speeding (> speed_limit + 5 kph, SPEEDING_MARGIN_KPH, for at
@@ -66,8 +84,9 @@ HIGH_RISK_SPEEDING_ACCEL_MIN = -2.0
 
 # --- AGGRESSIVE ---------------------------------------------------------
 
-# Unchanged: now means "1-2 harsh brakes" (live only because HIGH_RISK moved
-# to 6.0/3 events). UAH: 4 windows.
+# Means "1-2 harsh-braking events per minute" (live only because HIGH_RISK
+# moved to 6.0/3 events). Same stale-calibration caveat as the HIGH_RISK
+# cutoff above: derived against per-frame counts, not debounced events.
 AGGRESSIVE_HARSH_BRAKING_PER_MIN = 2.0
 
 # Was rapid_accel_per_min >= 2.0 — that feature is 0.0 at its max across all

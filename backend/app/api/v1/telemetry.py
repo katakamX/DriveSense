@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.events import FrameSample, detect_events
+from app.core.events import FrameSample, detect_events, state_for
 from app.core.live import publish
 from app.db.models import DrivingEvent, Telemetry, Trip
 from app.db.session import get_db
@@ -51,7 +51,12 @@ async def ingest_telemetry_batch(
         )
         for row in rows
     ]
-    events = detect_events(samples, speed_limit_kph)
+    # Per-trip state so a brake spanning two batches is one event, not two.
+    # An event still in progress when this batch ends stays open and is
+    # emitted by a later batch (or by the trip-end flush in `trips`), which
+    # is why the live stream reports a harsh brake once it has finished
+    # rather than at its onset — see app/core/events/state.py.
+    events = detect_events(samples, speed_limit_kph, state=state_for(trip_id))
     event_rows = [
         DrivingEvent(
             trip_id=trip_id,

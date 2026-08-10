@@ -101,4 +101,6 @@ def test_row_schema_matches_parquet_columns() -> None:
         assert isinstance(rows[0][name], float)
     assert rows[0]["feature_version"] == FEATURE_VERSION
     assert rows[0]["uah_label"] == "aggressive"
-    assert rows[0]["rubric_label"] is None  # labelling rubric is not implemented yet
+    # The rubric is applied to every corpus, so this is always one of the four
+    # classes — never null (it was hardcoded to None before the rubric existed).
+    assert rows[0]["rubric_label"] in {"CALM", "NORMAL", "AGGRESSIVE", "HIGH_RISK"}

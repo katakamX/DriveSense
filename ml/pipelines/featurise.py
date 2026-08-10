@@ -57,6 +57,7 @@ from app.core.features.windows import make_windows
 from pipelines.adapters import recordings as sim_adapter
 from pipelines.adapters import uah as uah_adapter
 from pipelines.fetch_uah import git_sha
+from pipelines.labeling.rubric import label_window_with_reason
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -134,6 +135,13 @@ class CorpusSummary:
     rejected_windows: int
     label_counts: Counter[str]
     driver_window_counts: Counter[str]
+    # Rubric labels are the training signal; `label_counts` above is the
+    # corpus's own ground-truth-ish label where it has one (UAH only).
+    rubric_label_counts: Counter[str] = field(default_factory=Counter)
+    # Simulator only: windows per scripted drive variant, so the by-trip /
+    # by-driver-profile split commitment (ADR 0006) can be checked against
+    # actual counts rather than assumed.
+    variant_window_counts: Counter[str] = field(default_factory=Counter)
     missing_prerequisites: list[str] = field(default_factory=list)
 
     @property
@@ -218,7 +226,11 @@ def _windows_to_rows(
                 speed_limit_kph=speed_limit_kph,
                 vector=vector,
                 uah_label=uah_label,
-                rubric_label=None,  # labelling rubric (ml/README.md) is not built yet
+                # Applied to both corpora: the simulator rows are the training
+                # labels, the UAH rows exist only so the rubric can be
+                # cross-tabbed against uah_label (ADR 0006) — UAH is never
+                # trained on regardless of what the rubric says about it.
+                rubric_label=label_window_with_reason(vector.as_dict())[0],
                 sha=sha,
                 dataset_sha256=dataset_sha256,
                 generated_at=generated_at,
@@ -269,6 +281,7 @@ def featurise_uah(
     rejected = 0
     label_counts: Counter[str] = Counter()
     driver_window_counts: Counter[str] = Counter()
+    rubric_label_counts: Counter[str] = Counter()
 
     for recording in recordings:
         meta = recording.meta
@@ -293,6 +306,8 @@ def featurise_uah(
         if label is not None:
             label_counts[label] += recording_kept
         driver_window_counts[meta.driver_id] += recording_kept
+        for row in recording_rows:
+            rubric_label_counts[str(row["rubric_label"])] += 1
 
     output_path = None
     if rows:
@@ -312,8 +327,23 @@ def featurise_uah(
         rejected_windows=rejected,
         label_counts=label_counts,
         driver_window_counts=driver_window_counts,
+        rubric_label_counts=rubric_label_counts,
         missing_prerequisites=missing,
     )
+
+
+def _drive_variant(recording_id: str) -> str:
+    """`high_risk-c-seed1204` -> `high_risk-c`; anything else unchanged.
+
+    The simulator encodes profile, variant and seed in the trip id (see
+    `drivesense_sim.__main__.default_trip_id`). Only the profile+variant part
+    identifies the *script*, which is the unit a by-driver-profile split has
+    to keep on one side (ADR 0006) — seeds of one script are the same driving.
+    """
+    parts = recording_id.rsplit("-", 1)
+    if len(parts) == 2 and parts[1].startswith("seed"):
+        return parts[0]
+    return recording_id
 
 
 def _sha256_of_files(paths: list[Path]) -> str:
@@ -359,6 +389,8 @@ def featurise_sim(
     kept = 0
     rejected = 0
     driver_window_counts: Counter[str] = Counter()
+    rubric_label_counts: Counter[str] = Counter()
+    variant_window_counts: Counter[str] = Counter()
 
     for recording in recordings:
         meta = recording.meta
@@ -379,13 +411,16 @@ def featurise_sim(
         kept += recording_kept
         rejected += recording_rejected
         driver_window_counts[meta.driver_id or "unknown"] += recording_kept
+        variant_window_counts[_drive_variant(meta.recording_id)] += recording_kept
+        for row in recording_rows:
+            rubric_label_counts[str(row["rubric_label"])] += 1
 
     output_path = None
     if rows:
         output_path = output_dir / f"features_sim_v{FEATURE_VERSION}.parquet"
         _write_parquet(rows, output_path)
 
-    missing = ["labelling rubric is not implemented yet; rubric_label is null for every row"]
+    missing: list[str] = []
     skipped_recordings = len(paths) - len(recordings)
     if skipped_recordings:
         missing.append(
@@ -400,6 +435,8 @@ def featurise_sim(
         rejected_windows=rejected,
         label_counts=Counter(),  # no ground-truth label exists for simulator rows
         driver_window_counts=driver_window_counts,
+        rubric_label_counts=rubric_label_counts,
+        variant_window_counts=variant_window_counts,
         missing_prerequisites=missing,
     )
 
@@ -467,12 +504,20 @@ def write_report(
         )
         lines.append(f"- coverage-rejection rate: {summary.rejection_rate:.1%}")
         lines.append("")
-        lines.append("### Class balance")
+        lines.append("### Rubric class balance (the training label)")
         lines.append("")
-        lines.append(_label_table(summary.label_counts))
+        lines.append(_label_table(summary.rubric_label_counts))
+        if summary.label_counts:
+            lines.append("### Corpus's own labels (validation reference only)")
+            lines.append("")
+            lines.append(_label_table(summary.label_counts))
         lines.append("### Windows per driver")
         lines.append("")
         lines.append(_driver_table(summary.driver_window_counts))
+        if summary.variant_window_counts:
+            lines.append("### Windows per scripted drive variant")
+            lines.append("")
+            lines.append(_driver_table(summary.variant_window_counts))
         for note in summary.missing_prerequisites:
             lines.append(f"**Note:** {note}")
         lines.append("")
