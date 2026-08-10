@@ -80,13 +80,6 @@ def test_aggressive_accel_variability() -> None:
     assert reason == "accel_std>=0.45"
 
 
-def test_high_risk_harsh_braking_rate() -> None:
-    label, reason = label_window_with_reason(_values(harsh_braking_per_min=6.0))
-
-    assert label == "HIGH_RISK"
-    assert reason == "harsh_braking_per_min>=6.0"
-
-
 def test_high_risk_speeding_combined_with_deceleration() -> None:
     # speeding_time_ratio=0.5 alone would only match the AGGRESSIVE rule;
     # HIGH_RISK is checked first, so the combined condition wins.
@@ -99,10 +92,16 @@ def test_high_risk_speeding_combined_with_deceleration() -> None:
 # --- Boundary cases ---------------------------------------------------------
 
 
-def test_just_below_high_risk_harsh_braking_threshold_falls_to_aggressive() -> None:
-    label, _ = label_window_with_reason(_values(harsh_braking_per_min=5.999))
+def test_harsh_braking_rate_alone_never_reaches_high_risk() -> None:
+    # The standalone HIGH_RISK harsh-braking rule was dropped as structurally
+    # unsatisfiable (see rubric.py): the feature is effectively binary once the
+    # detector debounces, so the single event quantum belongs to AGGRESSIVE at
+    # any rate. Hard braking reaches HIGH_RISK only via the compound rule.
+    for rate in (2.0, 6.0, 60.0):
+        label, reason = label_window_with_reason(_values(harsh_braking_per_min=rate))
 
-    assert label == "AGGRESSIVE"  # still clears the AGGRESSIVE >=2.0 rule
+        assert label == "AGGRESSIVE", rate
+        assert reason == "harsh_braking_per_min>=2.0"
 
 
 def test_just_below_aggressive_harsh_braking_threshold_is_not_aggressive() -> None:
@@ -128,14 +127,14 @@ def test_just_above_calm_speed_cv_boundary_is_not_calm() -> None:
 
 
 def test_high_risk_takes_priority_over_a_simultaneously_matching_aggressive_rule() -> None:
-    # lat_accel_max_abs=2.0 alone would match AGGRESSIVE; harsh_braking_per_min=6.0
-    # alone would match HIGH_RISK. HIGH_RISK must win.
+    # lat_accel_max_abs=2.0 alone would match AGGRESSIVE; speeding plus hard
+    # deceleration matches HIGH_RISK. HIGH_RISK must win.
     label, reason = label_window_with_reason(
-        _values(lat_accel_max_abs=2.0, harsh_braking_per_min=6.0)
+        _values(lat_accel_max_abs=2.0, speeding_time_ratio=0.5, accel_min=-2.0)
     )
 
     assert label == "HIGH_RISK"
-    assert reason == "harsh_braking_per_min>=6.0"
+    assert reason == "speeding_time_ratio>=0.5 and accel_min<=-2.0"
 
 
 # --- Rule-name uniqueness ---------------------------------------------------
@@ -150,7 +149,6 @@ def test_every_rule_has_a_distinct_name() -> None:
         _values(speeding_time_ratio=0.5),  # AGGRESSIVE
         _values(lat_accel_max_abs=2.0),  # AGGRESSIVE
         _values(accel_std=0.45),  # AGGRESSIVE
-        _values(harsh_braking_per_min=6.0),  # HIGH_RISK
         _values(speeding_time_ratio=0.5, accel_min=-2.0),  # HIGH_RISK
     ]
 

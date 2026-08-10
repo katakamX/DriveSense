@@ -26,15 +26,11 @@ replaced with a feature that measures the same underlying behaviour but
 actually varies in real data. Each rule's comment states which anchor it
 still traces to, or which empirical percentile replaced it.
 
-**The two `harsh_braking_per_min` cutoffs are known-stale.** They were
-calibrated when `app.core.events.detectors` counted one event per *frame*
-past the threshold; the detector now debounces, so one brake application is
-one event regardless of duration and the same driving yields roughly an
-order of magnitude fewer events. The rule comments say so individually. The
-numbers are deliberately left untouched here — recalibrating them needs a
-fresh percentile pass over regenerated features, which is its own task, and
-changing them by guesswork in the meantime would be worse than a documented
-known-stale value.
+The `harsh_braking_per_min` cutoffs have since been recalibrated against
+debounced detector output, which is also why there is now only one of them:
+the standalone HIGH_RISK harsh-braking rule was dropped for the same
+structural reason as the `accel_min` rule below, not merely renumbered. See
+that rule's comment and docs/adr/0006-training-label-rubric.md.
 """
 
 from __future__ import annotations
@@ -47,20 +43,24 @@ Label = Literal["CALM", "NORMAL", "AGGRESSIVE", "HIGH_RISK"]
 
 # --- HIGH_RISK --------------------------------------------------------------
 
-# >=6.0 means "3 or more harsh-braking events per minute", i.e. 3+ in a 30s
-# window — a driving *style*, not an occasional hard stop. >=4.0 (2 events)
-# left no headroom for the AGGRESSIVE >=2.0 (1 event) rule below it.
+# A standalone "harsh_braking_per_min >= X" HIGH_RISK rule was dropped
+# entirely. It previously sat at 6.0 ("3+ harsh-braking events per minute"),
+# a number derived when the detector emitted one event per *frame* past
+# -3.5 m/s^2. Now that the detector debounces (one brake application = one
+# event), the feature is effectively binary on real data: across all 1,709
+# UAH windows its only values are 0.0 and ~2.002-2.009, i.e. exactly one
+# brake application in a 30s window (14 windows: 10 drowsy, 4 aggressive,
+# 0 normal). No window anywhere in the corpus contains two.
 #
-# STALE CALIBRATION — these numbers predate debouncing. They were derived
-# when `app.core.events.detectors` emitted one event per *frame* past
-# -3.5 m/s^2, so what this rule counted was harsh-braking frames (quantized
-# at ~2.008/min, one 10 Hz frame in a 30s window), not brake applications.
-# The detector now debounces (minimum duration + hysteresis), so one brake
-# is one event however long it lasts, and these cutoffs are an order of
-# magnitude too high against the new counts. Recalibration against fresh
-# percentiles is a tracked follow-up; the wording here is corrected now so
-# the two do not stay out of step silently.
-HIGH_RISK_HARSH_BRAKING_PER_MIN = 6.0
+# That leaves a single quantum for two rules to divide, so the split is not
+# fixable by choosing a different number — it is unsatisfiable. Any cutoff
+# above ~2.009 fires zero times; any cutoff at or below 2.002 consumes the
+# whole population and starves the AGGRESSIVE rule below, which is checked
+# after it. Tested 6.0/4.0 (HIGH_RISK fires 0, AGGRESSIVE 10) and 2.0
+# (HIGH_RISK fires 14, AGGRESSIVE 0). The quantum is given to AGGRESSIVE,
+# where it is evidence-backed: one hard brake in 30s is a real event but is
+# not by itself a HIGH_RISK driving style. Genuinely severe braking still
+# reaches HIGH_RISK through the compound speeding rule below.
 
 # Sustained speeding (> speed_limit + 5 kph, SPEEDING_MARGIN_KPH, for at
 # least half the window) combined with hard deceleration is "too fast,
@@ -84,9 +84,12 @@ HIGH_RISK_SPEEDING_ACCEL_MIN = -2.0
 
 # --- AGGRESSIVE ---------------------------------------------------------
 
-# Means "1-2 harsh-braking events per minute" (live only because HIGH_RISK
-# moved to 6.0/3 events). Same stale-calibration caveat as the HIGH_RISK
-# cutoff above: derived against per-frame counts, not debounced events.
+# Means "at least one debounced harsh-braking event in the window": 2.0 sits
+# just under the ~2.002/min quantum a single brake application produces in a
+# 30s window. Confirmed against debounced UAH features: fires on 10 windows
+# (4 more match the HIGH_RISK compound rule first) and on no normal-labelled
+# window at all. Value unchanged from the pre-debounce rubric, but it now
+# means one brake rather than one 10 Hz frame.
 AGGRESSIVE_HARSH_BRAKING_PER_MIN = 2.0
 
 # Was rapid_accel_per_min >= 2.0 — that feature is 0.0 at its max across all
@@ -150,8 +153,6 @@ def label_window_with_reason(values: dict[str, float]) -> tuple[Label, str]:
     lat_accel_std = values["lat_accel_std"]
     speed_cv = values["speed_cv"]
 
-    if harsh_braking_per_min >= HIGH_RISK_HARSH_BRAKING_PER_MIN:
-        return "HIGH_RISK", "harsh_braking_per_min>=6.0"
     if (
         speeding_time_ratio >= HIGH_RISK_SPEEDING_TIME_RATIO
         and accel_min <= HIGH_RISK_SPEEDING_ACCEL_MIN

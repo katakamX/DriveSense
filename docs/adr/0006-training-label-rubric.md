@@ -11,9 +11,13 @@
   fully untouched by the rubric's development.
 - **Amended:** 2026-08-10 (second) — `app.core.events.detectors` now
   debounces impulse events, which changes what `harsh_braking_per_min`
-  counts. See "What an event counts" below. The rubric's two
-  `harsh_braking_per_min` cutoffs are consequently **known-stale pending
-  recalibration**; the wording is corrected here, the numbers are not yet.
+  counts. See "What an event counts" below.
+- **Amended:** 2026-08-10 (third) — the `harsh_braking_per_min` cutoffs
+  flagged stale by the amendment above were recalibrated against
+  regenerated features. The standalone `HIGH_RISK` harsh-braking rule was
+  dropped as structurally unreachable rather than renumbered; the
+  `AGGRESSIVE` cutoff stands at 2.0 on fresh evidence. See "Recalibrating
+  `harsh_braking_per_min` after debouncing" below.
 
 ## Context
 
@@ -158,12 +162,46 @@ convert that feature from a time fraction into an event rate.
 
 **Consequence, stated plainly:** the two `harsh_braking_per_min` cutoffs
 recorded in the section above (`>=6.0` for HIGH_RISK, `>=2.0` for
-AGGRESSIVE) were derived from the *old* per-frame counts and are now an
-order of magnitude too high. They are left unchanged for the moment, and
-flagged as stale in `rubric.py` itself, because recalibrating them requires
-a fresh percentile pass over regenerated features — the same evidence-first
-process this ADR describes, not a guess. Any label produced between this
-amendment and that recalibration under-reports HIGH_RISK and AGGRESSIVE.
+AGGRESSIVE) were derived from the *old* per-frame counts. That
+recalibration has now been done, and is recorded in the next section.
+
+### Recalibrating `harsh_braking_per_min` after debouncing
+
+Features were regenerated over the same 1,709 UAH windows with the
+debounced detector, and the percentile pass promised above was run. The
+result was not a new pair of numbers, because the distribution no longer
+admits a pair:
+
+1. Post-debounce, `harsh_braking_per_min` is effectively **binary** on real
+   data. Its only values across all 1,709 windows are 0.0 and
+   ~2.002–2.009 — exactly one brake application in a 30 s window. Fourteen
+   windows are non-zero (10 drowsy, 4 aggressive, **0 normal**); not one
+   window in the corpus contains two. Every percentile from p25 to p95 is
+   0.0 for all three labels.
+2. Two rules therefore had one quantum to divide, which no choice of
+   numbers can split. Measured directly: at `6.0`/`2.0` and at `4.0`/`2.0`
+   the HIGH_RISK rule fires 0 times and AGGRESSIVE 10; at `2.0`/`2.0`
+   HIGH_RISK fires 14 and AGGRESSIVE 0. There is no third outcome — any
+   cutoff above ~2.009 is unreachable, and any cutoff at or below 2.002
+   consumes the whole population before the AGGRESSIVE rule below it is
+   ever evaluated.
+3. The standalone HIGH_RISK harsh-braking rule was therefore **dropped
+   outright**, exactly as `accel_min <= -5.0` was dropped earlier and for
+   the same class of reason: the rule is structurally unreachable given the
+   rule ordering and the feature's real distribution, not merely
+   mis-numbered. `AGGRESSIVE_HARSH_BRAKING_PER_MIN` stays at `2.0`, which
+   is evidence-backed under the new counts (10 fires, never on a
+   normal-labelled window), and now means one brake application rather than
+   one 10 Hz frame. Hard braking still reaches HIGH_RISK through the
+   compound speeding rule, which fires 16 times.
+
+`rapid_accel_per_min` was re-checked in the same pass and remains 0.0 at
+every percentile *and* every maximum for all three labels — debouncing did
+not change that, because the 3.0 m/s² threshold is simply never crossed in
+this corpus. It stays out of the rubric.
+
+This leaves ten hand-set constants rather than the eleven counted above:
+two for `HIGH_RISK`, five for `AGGRESSIVE`, three for `CALM`.
 
 ### Per-trip and per-driver-profile splits (already committed, restated here)
 
@@ -227,12 +265,13 @@ to manufacture training labels from.
 - **`HIGH_RISK` measures outcome severity, not driver intent, and cannot
   distinguish their causes.** A drowsy driver who brakes hard because they
   drifted and startled, and an aggressive driver who brakes hard because
-  they were following too close, produce the same `harsh_braking_per_min`
-  and `accel_min` values and land on the same `HIGH_RISK` rule. On the
+  they were following too close, produce the same `speeding_time_ratio` and
+  `accel_min` values and land on the same `HIGH_RISK` compound rule. On the
   1,709 UAH validation windows this is not hypothetical: `HIGH_RISK` fires
-  on UAH `drowsy`-labelled and `aggressive`-labelled windows at
-  statistically indistinguishable rates (13 of each, out of 577 and 346
-  respectively). This is a stated limitation of a 4-class *behaviour*
+  on 5 of 577 `drowsy`-labelled windows against 11 of 346
+  `aggressive`-labelled ones — a real skew towards aggressive, but on
+  sixteen windows total, far too few to claim the rubric separates the two
+  causes. It does not attempt to. This is a stated limitation of a 4-class *behaviour*
   rubric, not a bug: separating drowsiness from aggression as a *cause*
   would need driver-state signal this rubric — built only from vehicle
   telemetry features — does not have access to.
