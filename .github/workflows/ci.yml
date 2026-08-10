@@ -117,6 +117,9 @@ jobs:
       - name: Mypy
         run: mypy app
 
+      - name: Run migrations
+        run: alembic upgrade head
+
       - name: Pytest
         run: pytest -q
 
