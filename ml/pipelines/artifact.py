@@ -12,8 +12,8 @@ class. Writing them out explicitly buys three things a pickle does not:
    unpickling an artefact is arbitrary code execution, parsing JSON is not.
 3. **No version coupling.** The artefact does not embed scikit-learn's object
    graph, so it does not silently break, or silently *change behaviour*, when
-   scikit-learn is upgraded. `predict_proba` here is fifteen lines of numpy
-   that will mean the same thing in five years.
+   scikit-learn is upgraded. `predict_proba` is fifteen lines of numpy that
+   will mean the same thing in five years.
 
 The cost is that the format is specific to this model class. A tree-based
 model would need its own node-dump format; that is a deliberate trade, and the
@@ -24,6 +24,15 @@ Floats are written at full `repr` precision, so a round-trip is exact rather
 than merely close: `predict` on the deserialised artefact returns the same
 labels as the fitted scikit-learn pipeline, not similar ones. That is asserted
 in `ml/tests/test_train.py`, not assumed.
+
+**The reader half now lives in `backend/app/ml/artifact.py`** — the split this
+docstring anticipated when it said the backend loads the artefact at runtime.
+`read_model_json`, `predict_proba` and `predict` are imported back from there
+and re-exported here, so training and serving evaluate the artefact with the
+same code rather than with two implementations that agree until they don't.
+What stays is what only training needs: the serialiser, the writer, and
+`feature_matrix` (which takes a pandas frame the backend has no reason to
+depend on).
 """
 
 from __future__ import annotations
@@ -34,17 +43,38 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-
-MODEL_FORMAT = "drivesense-multinomial-logreg"
-MODEL_FORMAT_VERSION = "1"
-
-# The arithmetic the artefact encodes, written where a reader will find it.
-DECISION_RULE = (
-    "z = (x - standardiser.mean) / standardiser.scale; "
-    "scores = coefficients @ z + intercepts; "
-    "proba = softmax(scores); "
-    "prediction = classes[argmax(proba)]"
+from app.ml.artifact import (
+    DECISION_RULE,
+    MODEL_FORMAT,
+    MODEL_FORMAT_VERSION,
+    centered_coefficients,
+    centered_intercepts,
+    centered_logits,
+    feature_contributions,
+    predict,
+    predict_proba,
+    read_model_json,
+    scores,
+    standardise,
 )
+
+__all__ = [
+    "DECISION_RULE",
+    "MODEL_FORMAT",
+    "MODEL_FORMAT_VERSION",
+    "centered_coefficients",
+    "centered_intercepts",
+    "centered_logits",
+    "feature_contributions",
+    "feature_matrix",
+    "predict",
+    "predict_proba",
+    "read_model_json",
+    "scores",
+    "serialise_logistic_regression",
+    "standardise",
+    "write_model_json",
+]
 
 
 def serialise_logistic_regression(
@@ -96,46 +126,6 @@ def serialise_logistic_regression(
     return payload
 
 
-def _softmax(scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    # Shift by the row max before exponentiating: mathematically a no-op,
-    # numerically the difference between a probability and an overflow warning.
-    shifted = scores - scores.max(axis=1, keepdims=True)
-    exponentiated = np.exp(shifted)
-    normalised: npt.NDArray[np.float64] = exponentiated / exponentiated.sum(axis=1, keepdims=True)
-    return normalised
-
-
-def predict_proba(
-    payload: dict[str, Any], features: npt.NDArray[np.float64]
-) -> npt.NDArray[np.float64]:
-    """Class probabilities for each row of `features`, in `payload["classes"]` order.
-
-    `features` must already be ordered by `payload["feature_names"]` — use
-    `feature_matrix` to build it from a frame rather than trusting column order.
-    """
-    standardiser = payload["standardiser"]
-    mean = np.asarray(standardiser["mean"], dtype=np.float64)
-    scale = np.asarray(standardiser["scale"], dtype=np.float64)
-    coefficients = np.asarray(payload["coefficients"], dtype=np.float64)
-    intercepts = np.asarray(payload["intercepts"], dtype=np.float64)
-
-    if features.shape[1] != mean.shape[0]:
-        raise ValueError(
-            f"got {features.shape[1]} features, artefact expects {mean.shape[0]} "
-            f"({', '.join(payload['feature_names'])})"
-        )
-
-    standardised = (features - mean) / scale
-    return _softmax(standardised @ coefficients.T + intercepts)
-
-
-def predict(payload: dict[str, Any], features: npt.NDArray[np.float64]) -> list[str]:
-    """Predicted class label per row of `features`."""
-    classes: list[str] = list(payload["classes"])
-    indices = predict_proba(payload, features).argmax(axis=1)
-    return [classes[int(index)] for index in indices]
-
-
 def feature_matrix(frame: Any, payload: dict[str, Any]) -> npt.NDArray[np.float64]:
     """Select and order `frame`'s columns to match the artefact's feature list.
 
@@ -153,17 +143,3 @@ def feature_matrix(frame: Any, payload: dict[str, Any]) -> npt.NDArray[np.float6
 def write_model_json(payload: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-
-def read_model_json(path: Path) -> dict[str, Any]:
-    payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("format") != MODEL_FORMAT:
-        raise ValueError(
-            f"{path.name}: expected format {MODEL_FORMAT!r}, got {payload.get('format')!r}"
-        )
-    if payload.get("format_version") != MODEL_FORMAT_VERSION:
-        raise ValueError(
-            f"{path.name}: artefact format version {payload.get('format_version')!r} "
-            f"is not the {MODEL_FORMAT_VERSION!r} this reader understands"
-        )
-    return payload

@@ -15,6 +15,9 @@ dependencies = [
     "sqlalchemy>=2.0.36",
     "psycopg[binary]>=3.2",
     "alembic>=1.13",
+    # Inference only: `app.ml.artifact` evaluates the serialised coefficient
+    # dump. No scikit-learn — the backend loads models, it does not fit them.
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

@@ -7,13 +7,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.events import FrameSample, detect_events, state_for
+from app.core.features import FeatureSample
 from app.core.live import publish
+from app.core.windowing import append as buffer_append
+from app.core.windowing import ensure_started
 from app.db.models import DrivingEvent, Telemetry, Trip
 from app.db.session import get_db
 from app.schemas.live import LiveMessage
 from app.schemas.telemetry import TelemetryBatchRequest, TelemetryBatchResponse
 
 router = APIRouter(prefix="/trips/{trip_id}/telemetry", tags=["telemetry"])
+
+
+def _optional_float(frame: object, name: str) -> float | None:
+    """Read an extended field a producer may not send.
+
+    `TelemetryFrameIn` allows extras, so fields this schema doesn't name (yaw
+    rate, heading) arrive as attributes when the producer supplies them and
+    are simply absent when it doesn't. `FeatureSample` wants `None` for a
+    value nobody measured, never a fabricated zero (see its docstring).
+    """
+    value = getattr(frame, name, None)
+    return float(value) if isinstance(value, int | float) else None
 
 
 @router.post("/batch", response_model=TelemetryBatchResponse, status_code=status.HTTP_201_CREATED)
@@ -71,6 +86,30 @@ async def ingest_telemetry_batch(
     db.add_all(event_rows)
 
     await db.commit()
+
+    # Feed the window the 1 Hz tick reduces, and start that tick if this is
+    # the trip's first batch. The buffer is fed from the request payload
+    # rather than from `rows` because it wants the extended fields (yaw rate,
+    # heading) that the telemetry table does not have columns for — they live
+    # in `raw_frame`, and re-reading them back out of JSON here would be a
+    # round trip for data we are already holding.
+    buffer_append(
+        trip_id,
+        [
+            FeatureSample(
+                recorded_at=frame.ts,
+                speed_kph=frame.speed_kph,
+                accel_ms2=frame.accel_ms2,
+                lateral_accel_ms2=frame.lateral_accel_ms2,
+                yaw_rate_dps=_optional_float(frame, "yaw_rate_dps"),
+                heading_deg=_optional_float(frame, "heading_deg"),
+                lat=frame.lat,
+                lon=frame.lon,
+            )
+            for frame in payload.frames
+        ],
+    )
+    ensure_started(trip_id, speed_limit_kph)
 
     for row in rows:
         publish(

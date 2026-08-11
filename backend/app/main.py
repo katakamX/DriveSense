@@ -22,7 +22,9 @@ if sys.platform == "win32":
 
 from app.api.v1 import drivers, health, live, telemetry, trips, vehicles
 from app.config import get_settings
+from app.core.windowing import stop_all
 from app.db.session import dispose_engine
+from app.ml import load_model
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     logger.info("Starting %s v%s (%s)", settings.app_name, settings.version, settings.environment)
+    # Read once, here, rather than per request. A missing artefact is not a
+    # startup failure — the backend serves rule-only (see app/ml/loader.py).
+    load_model()
     yield
+    # Per-trip inference ticks are asyncio tasks; a trip still live at
+    # shutdown has one running, and it has to be cancelled before the loop
+    # closes underneath it.
+    await stop_all()
     await dispose_engine()
     logger.info("Shutdown complete")
 

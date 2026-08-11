@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import discard_trip, flush_trip
 from app.core.live import publish
+from app.core.windowing import stop_trip
 from app.db.models import DrivingEvent, Trip
 from app.db.session import get_db
 from app.schemas.live import LiveMessage
@@ -73,6 +74,11 @@ async def update_trip(
         changes.get("status") in TERMINAL_TRIP_STATUSES
     )
     trailing = flush_trip(trip_id) if ending else []
+    if ending:
+        # Same discipline as the detector-state flush above: a trip that is
+        # over holds no in-process state. Cancels the tick and waits for it,
+        # then releases the buffer.
+        await stop_trip(trip_id)
     for event in trailing:
         db.add(
             DrivingEvent(
@@ -112,3 +118,4 @@ async def delete_trip(trip_id: uuid.UUID, db: AsyncSession = Depends(get_db)) ->
     await db.delete(trip)
     await db.commit()
     discard_trip(trip_id)
+    await stop_trip(trip_id)
