@@ -17,6 +17,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
+import numpy.typing as npt
 
 # Eyes-closed threshold as a fraction of the calibrated open-eye EAR.
 # 0.75 is the commonly cited multiplier in EAR-based blink literature; it is
@@ -28,7 +29,7 @@ DEFAULT_CLOSED_RATIO = 0.75
 MIN_BLINK_FRAMES = 2
 
 
-def eye_aspect_ratio(eye_points: np.ndarray) -> float:
+def eye_aspect_ratio(eye_points: npt.NDArray[np.float64]) -> float:
     """Standard 6-point EAR (Soukupová & Čech, 2016).
 
     `eye_points` is `(6, 2)`, ordered (corner, upper-1, upper-2, corner,

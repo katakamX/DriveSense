@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 
 from capture import Camera
 from client import DriverStateClient
@@ -42,7 +43,7 @@ STATUS_INTERVAL_S = 2.0
 DEBUG_WINDOW_NAME = "DriveSense (q or ESC to quit)"
 
 
-def _mean_ear(left_eye: np.ndarray, right_eye: np.ndarray) -> float:
+def _mean_ear(left_eye: npt.NDArray[np.float64], right_eye: npt.NDArray[np.float64]) -> float:
     return (eye_aspect_ratio(left_eye) + eye_aspect_ratio(right_eye)) / 2.0
 
 
@@ -53,7 +54,7 @@ def _calibration_status(calibration: Calibration) -> str:
 
 
 def _draw_overlay(
-    frame: np.ndarray,
+    frame: npt.NDArray[np.uint8],
     result: FaceLandmarksResult,
     ear: float | None,
     calibration: Calibration,
@@ -73,7 +74,7 @@ def _draw_overlay(
         for eye in (result.left_eye, result.right_eye):
             points = eye.astype(np.int32)
             cv2.polylines(frame, [points], isClosed=True, color=colour, thickness=1)
-            for x, y in points:
+            for x, y in points.tolist():
                 cv2.circle(frame, (int(x), int(y)), 2, colour, -1)
 
     lines = [

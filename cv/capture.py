@@ -15,6 +15,7 @@ from collections.abc import Iterator
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class Camera:
             )
         return False
 
-    def frames(self, target_fps: float = 15.0) -> Iterator[np.ndarray]:
+    def frames(self, target_fps: float = 15.0) -> Iterator[npt.NDArray[np.uint8]]:
         """Yield BGR frames, self-pacing to `target_fps`.
 
         Stops (without raising) after `MAX_CONSECUTIVE_READ_FAILURES`
@@ -131,7 +132,10 @@ class Camera:
                 continue
 
             consecutive_failures = 0
-            yield frame
+            # `VideoCapture.read()` is typed to return the broader `MatLike`
+            # (mypy has no way to know a webcam only ever hands back 8-bit
+            # BGR); `copy=False` makes this a no-op cast on the actual data.
+            yield frame.astype(np.uint8, copy=False)
 
             elapsed = time.monotonic() - loop_start
             remaining = frame_interval_s - elapsed

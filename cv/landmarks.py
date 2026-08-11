@@ -19,10 +19,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 import mediapipe as mp
 import numpy as np
+import numpy.typing as npt
 from mediapipe.tasks.python import vision
 from mediapipe.tasks.python.core.base_options import BaseOptions
 
@@ -65,8 +67,8 @@ def ensure_model(model_path: Path = DEFAULT_MODEL_PATH) -> Path:
 @dataclass(frozen=True)
 class FaceLandmarksResult:
     face_detected: bool
-    left_eye: np.ndarray | None  # (6, 2) pixel coordinates
-    right_eye: np.ndarray | None  # (6, 2) pixel coordinates
+    left_eye: npt.NDArray[np.float64] | None  # (6, 2) pixel coordinates
+    right_eye: npt.NDArray[np.float64] | None  # (6, 2) pixel coordinates
 
 
 class FaceLandmarker:
@@ -88,7 +90,7 @@ class FaceLandmarker:
         self._landmarker = vision.FaceLandmarker.create_from_options(options)
         self._frame_index = 0
 
-    def process(self, frame_bgr: np.ndarray) -> FaceLandmarksResult:
+    def process(self, frame_bgr: npt.NDArray[np.uint8]) -> FaceLandmarksResult:
         """Run the landmarker on one BGR frame (as OpenCV yields) and extract eyes."""
         height, width = frame_bgr.shape[:2]
         rgb = np.ascontiguousarray(frame_bgr[:, :, ::-1])  # the model expects RGB
@@ -113,7 +115,12 @@ class FaceLandmarker:
         self._landmarker.close()
 
 
-def _pixel_points(landmarks: object, indices: tuple[int, ...], width: int, height: int) -> np.ndarray:
+def _pixel_points(
+    landmarks: Any, indices: tuple[int, ...], width: int, height: int
+) -> npt.NDArray[np.float64]:
+    # `landmarks` is `mediapipe`'s `NormalizedLandmark` list; the package
+    # ships no type stubs (see `[tool.mypy.overrides]` for `mediapipe.*`),
+    # so `Any` is what the caller's `result.face_landmarks[0]` already is.
     return np.array(
         [(landmarks[i].x * width, landmarks[i].y * height) for i in indices],
         dtype=np.float64,

@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.3", "ruff>=0.7"]
+dev = ["pytest>=8.3", "ruff>=0.7", "mypy>=1.13"]
 
 # Listed explicitly rather than auto-discovered: this is a flat layout (six
 # top-level modules, no package directory), which setuptools refuses to
@@ -41,3 +41,12 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+# Neither ships type information / py.typed.
+[[tool.mypy.overrides]]
+module = ["cv2.*", "mediapipe.*"]
+ignore_missing_imports = true
