@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drivesense-cv"
+version = "0.1.0"
+description = "Standalone driver-monitoring process: camera -> facial landmarks -> drowsiness estimate"
+requires-python = ">=3.12"
+dependencies = [
+    "opencv-python>=4.10",
+    # >=1.0, not >=0.10: landmarks.py targets the Tasks API
+    # (mediapipe.tasks.python.vision.FaceLandmarker). 0.10.x exposes the
+    # older mp.solutions.face_mesh API instead, which 1.0 removed — a
+    # resolution to 0.10 would fail at import.
+    "mediapipe>=1.0",
+    "numpy>=1.26",
+    "pydantic>=2.9",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "ruff>=0.7"]
+
+# Listed explicitly rather than auto-discovered: this is a flat layout (six
+# top-level modules, no package directory), which setuptools refuses to
+# guess at. Declaring them keeps the flat `from capture import Camera`
+# imports in main.py working — restructuring into a package would mean
+# rewriting those imports for no gain in a process that is only ever run as
+# an entrypoint, never imported by anything else.
+[tool.setuptools]
+py-modules = ["capture", "client", "contracts", "drowsiness", "landmarks", "main"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

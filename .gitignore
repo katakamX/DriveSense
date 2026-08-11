@@ -31,6 +31,9 @@ ml/artifacts/
 # directory, so recordings can land under simulator/ as well as the repo root.
 **/data/recordings/
 
+# CV model asset — fetched by cv/landmarks.py on first run, not committed.
+cv/.models/
+
 # Editors / OS
 .vscode/
 .idea/
