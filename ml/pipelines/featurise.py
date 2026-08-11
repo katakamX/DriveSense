@@ -90,8 +90,48 @@ UAH_SPEED_LIMIT_BY_ROAD_TYPE = {"MOTORWAY": 120.0, "SECONDARY": 90.0}
 
 # Fallback for anything without a road-type-specific limit above: the same
 # default the live ingest path uses (app.config.Settings.default_speed_limit_kph).
-# Applies to every simulator row (no speed-limit concept there yet) and to
-# any UAH road_type this pipeline hasn't seen.
+# Applies to every simulator row and to any UAH road_type this pipeline hasn't
+# seen.
+#
+# **Why the simulator gets one flat limit, decided in M8's domain-gap work.**
+# The M8 gap analysis flagged `speeding_time_ratio` as behaving incomparably
+# across the two corpora: it was non-zero in 3.6% of simulator windows against
+# 27% of UAH windows. The question was whether the simulator should get
+# road-type-aware limits like UAH does.
+#
+# It cannot, and the reason is not a policy choice: **the simulator has no
+# concept of a road.** There is no road type, no route, no posted limit
+# anywhere in `simulator/` or in the shared `contracts` schema — a recording is
+# a vehicle state trace and nothing else. Any road type attached here would be
+# invented by this pipeline, not measured.
+#
+# Two ways of inventing one were considered and rejected:
+#
+#   * *Per driving profile* (give HIGH_RISK a lower limit so it speeds).
+#     Rejected outright — it leaks the label into a feature. The rubric reads
+#     `speeding_time_ratio`, so deriving the limit from the profile would make
+#     the label partly a function of itself, which is exactly the circularity
+#     ADR 0006 exists to avoid.
+#   * *Alternating 120/90 by recording*, mimicking UAH's motorway/secondary
+#     mix. Not circular, but it adds a random component to a rubric input:
+#     identical driving would be labelled differently depending on a coin
+#     flip this pipeline tossed. That is label noise manufactured to make a
+#     histogram match.
+#
+# The measured cause turned out to be elsewhere anyway. The simulator's windows
+# were not failing to speed because 100 kph was the wrong limit; they were
+# failing because the scripted drives cruised at ~53 kph and never came near
+# any plausible limit. With `drivesense_sim.drives` recalibrated to real
+# highway speeds, one flat limit separates the classes as intended — CALM and
+# NORMAL cruise below it, HIGH_RISK sits well above it — and no road type has
+# to be fabricated to get there.
+#
+# The residual mismatch is stated rather than papered over: UAH's SECONDARY
+# recordings sit at a median 88.7 kph against a 90 kph limit, so noise alone
+# pushes 42% of those windows over the +5 margin, while its MOTORWAY
+# recordings (98.0 median, 120 limit) cross it in 9%. No single simulator
+# limit reproduces that split, because it is a property of where those cars
+# were driven and the simulator does not model place.
 DEFAULT_SPEED_LIMIT_KPH = 100.0
 
 # NORMAL1/NORMAL2 are the secondary-road normal drives split for D1-D5 (see

@@ -10,6 +10,17 @@ Generated artefacts (all gitignored under `data/**`):
 (828 windows), `data/processed/features_uah_v1.parquet` (1,709 windows, regenerated
 so its now-populated `rubric_label` column matches).
 
+> **Every simulator figure in this report describes the pre-M8 corpus**
+> (added 2026-08-11). M8's evaluation traced the sim-to-real gap partly to
+> defects in `drivesense_sim.drives`; those were fixed and all 74 recordings
+> regenerated, so the simulator corpus is now 1,135 windows with different
+> distributions and a different label balance. This report is kept verbatim
+> rather than rewritten: it is the measurement that *motivated* the fix, and
+> ADR 0006 and `ml/configs/train_v1.yaml` both cite its findings by number.
+> **Section 1b restates section 1's table on the corpus that exists now**, and
+> section 3's counts are superseded by `m8-evaluation.md` sections 1 and 5.
+> UAH figures throughout are unaffected — that corpus is fixed input.
+
 ---
 
 ## 1. THE HEADLINE: simulator and UAH are not on the same scale
@@ -66,6 +77,56 @@ persistent low-level noise that real telemetry always shows.
 
 Per the decision rule given: nothing was rescaled, Phase 2 proceeded anyway,
 and the distributions are now on record.
+
+---
+
+## 1b. The same comparison after the M8 recalibration (2026-08-11)
+
+Section 1's findings were acted on: `drivesense_sim.drives` was rewritten to
+drive at highway speeds on a road that bends, and the corpus regenerated
+(1,135 windows from the same 74 recordings, up from 828 — the drives are
+longer). The same table, re-measured:
+
+| feature | sim p50 | sim abs-max | UAH p50 | UAH abs-max | ratio (abs-max) |
+|---|---|---|---|---|---|
+| `lat_accel_std` | 0.205 | 4.950 | 0.267 | 1.736 | **2.85×** |
+| `harsh_braking_per_min` | 0.000 | 4.013 | 0.000 | 2.009 | 2.00× |
+| `speed_cv` | 0.052 | 0.563 | 0.029 | 0.287 | 1.96× |
+| `lat_accel_max_abs` | 1.122 | 6.453 | 0.922 | 4.403 | 1.47× |
+| `accel_max` | 0.251 | 3.258 | 0.677 | 2.432 | 1.34× |
+| `accel_std` | 0.197 | 1.621 | 0.229 | 1.311 | 1.24× |
+| `accel_min` | −0.270 | −6.741 | −0.765 | −6.463 | 1.04× |
+| `speed_mean` | 84.790 | 124.411 | 91.490 | 141.144 | 0.88× |
+| `rapid_accel_per_min` | 0.000 | 2.007 | 0.000 | **0.000** | **∞** |
+| `jerk_std` | 0.835 | 4.618 | 2.284 | 6.778 | 0.68× |
+
+What moved, and what did not:
+
+**Closed.** Three of section 1's specific defects no longer exist. The
+simulator's median speed went from ~50 kph to 84.8 against UAH's 91.5, so the
+35% of windows still below UAH's 5th percentile (72.7 kph) are the deliberate
+secondary-road sections rather than the whole corpus. The four lateral
+features were *exactly* 0.000 together in 58% of windows; they now are in
+**0%**, matching UAH's 0%. `speeding_time_ratio` is non-zero in 20.7% of
+simulator windows against UAH's 27.1%, from 3.6% before.
+
+**Narrowed.** `harsh_braking_per_min`'s 3.60× gap is now 2.00×, but almost all
+of that is the debouncing fix (ADR 0006), not this recalibration: the detector
+now counts applications rather than frames on both corpora. `accel_std` went
+from 1.93× to 1.24×, and its medians from 0.127-vs-0.229 to 0.197-vs-0.229.
+
+**Unchanged, and still the reason four features are excluded from the model.**
+`rapid_accel_per_min` is still identically 0.000 on UAH — no simulator change
+can fix a feature the validation corpus cannot express. `lat_accel_std`'s
+abs-max ratio is unchanged at 2.85×: the simulator still corners harder at the
+tail than any real window does, even though its median is now realistic. And
+finding (c) still holds in the direction that matters — `jerk_std` and
+`accel_max` medians remain far below UAH's, because clean physics does not
+reproduce the persistent low-level noise of a phone accelerometer.
+
+The honest summary is that the gap narrowed from *different scale* to
+*different tails*, which is what M8's evaluation then measured: see
+`m8-evaluation.md` section 0.
 
 ---
 

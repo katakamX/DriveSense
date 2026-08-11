@@ -15,13 +15,13 @@ assertion.
 variants are whole authored drives (`pipelines.split`), and with three or four
 per class a single held-out variant per class is a very small, very
 lumpy test set — one unusual script would move the headline number more than
-the model would. Rotating every variant through the test position uses all 827
-windows as test data exactly once and, more usefully, exposes how much the
+the model would. Rotating every variant through the test position uses every
+window as test data exactly once and, more usefully, exposes how much the
 score *moves* between scripts. That spread is reported alongside every mean,
 because it is the honest width of the claim.
 
 **The shipped artefact is refitted on everything.** `model.json` is a final
-logistic regression fitted on all 827 simulator windows with no fold held out
+logistic regression fitted on every simulator window with no fold held out
 — the cross-validated numbers estimate how that model generalises, they are
 not measurements of it. This is stated in the report and the model card rather
 than left implicit. The alternative (ensembling the three fold models) would
@@ -144,8 +144,8 @@ def load_config(path: Path) -> TrainConfig:
 def build_logistic_regression(config: TrainConfig) -> Pipeline:
     """Standardise, then fit multinomial logistic regression.
 
-    Standardisation is not cosmetic here: the 25 features span `stop_ratio` in
-    [0, 1] and `speed_max` in the tens, and an L2 penalty on unstandardised
+    Standardisation is not cosmetic here: the features span `brake_time_ratio`
+    in [0, 1] and `speed_max` in the tens, and an L2 penalty on unstandardised
     coefficients penalises them by unit rather than by importance.
     """
     return Pipeline(
@@ -331,6 +331,19 @@ def _class_balance_table(labels: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _majority_share(metrics: ev.Metrics) -> float:
+    """Share of the *evaluation set's* own largest class.
+
+    Distinct from `Metrics.majority_accuracy`, which scores the honest baseline:
+    always predicting the majority class of the **training** corpus. On UAH the
+    two differ a lot, and quoting one where the other is meant makes a model
+    look better or worse than it is — so both are stated, side by side.
+    """
+    if metrics.n_windows == 0:
+        return 0.0
+    return max(entry.support for entry in metrics.per_class) / metrics.n_windows
+
+
 def _fold_composition_table(manifest: FoldManifest, prepared: pd.DataFrame) -> str:
     lines = [
         "| fold | held-out variants | recordings | windows | class balance of the held-out fold |",
@@ -404,43 +417,113 @@ def build_report(
     if uah_metrics is not None:
         logreg_uah = uah_metrics[LOGREG_MODEL]
         tree_uah = uah_metrics[TREE_MODEL]
+        high_risk_index = CLASS_ORDER.index("HIGH_RISK")
+        logreg_hr = logreg_uah.per_class[high_risk_index]
+        tree_hr = tree_uah.per_class[high_risk_index]
+        logreg_hr_hits = logreg_uah.confusion[high_risk_index][high_risk_index]
+        tree_hr_hits = tree_uah.confusion[high_risk_index][high_risk_index]
+
+        # Whether the models clear the baseline on real telemetry is the single
+        # thing this section exists to state, so it is read off the metrics
+        # rather than asserted — a rewritten corpus can flip it either way, and
+        # a headline that has to be kept in sync by hand will not be.
+        if logreg_uah.beats_majority and tree_uah.beats_majority:
+            verdict_sentence = (
+                "**On real UAH telemetry, both models beat the majority-class baseline.**"
+            )
+        elif not logreg_uah.beats_majority and not tree_uah.beats_majority:
+            verdict_sentence = (
+                "**On real UAH telemetry, neither beats the majority-class baseline.**"
+            )
+        elif logreg_uah.beats_majority:
+            verdict_sentence = (
+                "**On real UAH telemetry, only the logistic regression beats the majority-class "
+                "baseline.**"
+            )
+        else:
+            verdict_sentence = (
+                "**On real UAH telemetry, only the decision tree beats the majority-class "
+                "baseline.**"
+            )
         add(
-            f"**On real UAH telemetry, neither beats the majority-class baseline.** The logistic "
-            f"regression scores {logreg_uah.accuracy:.3f} accuracy against a baseline of "
-            f"{logreg_uah.majority_accuracy:.3f}; the decision tree scores "
-            f"{tree_uah.accuracy:.3f} against the same {tree_uah.majority_accuracy:.3f}. This is "
-            "the central result of M8 and it is stated first rather than at the end of section 7, "
-            "because a reader who takes only one number away should take this one."
+            f"{verdict_sentence} The logistic regression scores {logreg_uah.accuracy:.3f} "
+            f"accuracy against a baseline of {logreg_uah.majority_accuracy:.3f} "
+            f"(macro-F1 {logreg_uah.macro_f1:.3f}); the decision tree scores "
+            f"{tree_uah.accuracy:.3f} against the same {tree_uah.majority_accuracy:.3f} "
+            f"(macro-F1 {tree_uah.macro_f1:.3f}). This is the central result of M8 and it is "
+            "stated first rather than at the end of section 7, because a reader who takes only "
+            "one number away should take this one."
+        )
+        add("")
+        add(
+            "Note what that baseline is: the majority class *of the training corpus*, which is "
+            "the only class an always-guess model could actually know. It is not UAH's own "
+            f"majority class, which covers {_majority_share(logreg_uah):.1%} of these windows — "
+            "see section 7."
         )
         add("")
         add("Two things follow, and they matter more than the headline simulator scores:")
         add("")
-        add(
-            f"1. **The in-domain winner is the out-of-domain loser.** The decision tree wins on "
-            f"every simulator fold (macro-F1 {tree_summary.macro_f1.mean:.3f} vs "
-            f"{logreg_summary.macro_f1.mean:.3f}) and has perfect `HIGH_RISK` recall there — then "
-            f"predicts `HIGH_RISK` **zero times** across all {tree_uah.n_windows} UAH windows. "
-            "Its cross-validated score was not wrong; it simply measured generalisation to unseen "
-            "*scripts*, which turns out to say little about generalisation to unseen *driving*."
+        sim_leader, sim_trailer = (
+            (LOGREG_MODEL, TREE_MODEL)
+            if logreg_summary.macro_f1.mean >= tree_summary.macro_f1.mean
+            else (TREE_MODEL, LOGREG_MODEL)
         )
+        uah_leader = LOGREG_MODEL if logreg_uah.macro_f1 >= tree_uah.macro_f1 else TREE_MODEL
+        if sim_leader == uah_leader:
+            add(
+                f"1. **The in-domain winner is also the out-of-domain winner.** The "
+                f"{sim_leader} leads on held-out simulator variants (macro-F1 "
+                f"{logreg_summary.macro_f1.mean:.3f} vs {tree_summary.macro_f1.mean:.3f}) and "
+                f"leads again on UAH ({logreg_uah.macro_f1:.3f} vs {tree_uah.macro_f1:.3f}). "
+                "That agreement is worth something, but not much on its own: two folds' worth "
+                f"of margin over the {sim_trailer} is well inside the fold-to-fold spread, and "
+                "the ranking is not the interesting part of this table. The gap between the "
+                "simulator column and the UAH column is."
+            )
+        else:
+            add(
+                f"1. **The in-domain winner is the out-of-domain loser.** The {sim_leader} wins "
+                f"on the simulator folds (macro-F1 {logreg_summary.macro_f1.mean:.3f} vs "
+                f"{tree_summary.macro_f1.mean:.3f}) and then loses on UAH "
+                f"({logreg_uah.macro_f1:.3f} vs {tree_uah.macro_f1:.3f}). Its cross-validated "
+                "score was not wrong; it simply measured generalisation to unseen *scripts*, "
+                "which turns out to say little about generalisation to unseen *driving*."
+            )
         add(
-            f"2. **The logistic regression's UAH failure is over-prediction, not silence.** It "
-            f"recovers all {logreg_uah.per_class[CLASS_ORDER.index('HIGH_RISK')].support} "
-            f"`HIGH_RISK` windows (recall {logreg_uah.high_risk_recall:.3f}) but predicts that "
-            f"class {logreg_uah.per_class[CLASS_ORDER.index('HIGH_RISK')].predicted} times, for a "
-            f"precision of "
-            f"{logreg_uah.per_class[CLASS_ORDER.index('HIGH_RISK')].precision:.3f}. A model that "
-            "calls one window in five high-risk is not usable as-is, whatever its recall says."
+            f"2. **The two models fail differently on `HIGH_RISK`, and the difference is the "
+            f"whole argument for the one that ships.** Of {logreg_hr.support} `HIGH_RISK` "
+            f"windows in UAH the logistic regression recovers {logreg_hr_hits} "
+            f"(recall {logreg_uah.high_risk_recall:.3f}) at the cost of predicting the class "
+            f"{logreg_hr.predicted} times — precision {logreg_hr.precision:.3f}. The decision "
+            f"tree recovers {tree_hr_hits} (recall {tree_uah.high_risk_recall:.3f}) from "
+            f"{tree_hr.predicted} predictions. Over-prediction is a tuning problem with a "
+            "visible cost; silence on the rarest and most consequential class is a failure "
+            "nothing downstream can detect."
         )
         add("")
         add(
             'Section 7 sets out the three reasons this comparison is harder than "unseen data" '
-            "— chiefly the measured simulator/real domain gap (M7b section 1). None of them make "
-            "the result better; they explain it. The honest reading is that a model trained only "
-            "on scripted simulator drives does not yet transfer to real telemetry, and "
-            "`ml/README.md`'s standing instruction applies: that is a finding worth reporting, "
-            "not hiding."
+            "— chiefly the simulator/real domain gap, measured there on the two corpora this "
+            "run used. None of them make the result better or worse; they bound what it means."
         )
+        add("")
+        if logreg_uah.beats_majority:
+            add(
+                f"The honest reading: a model trained only on scripted simulator drives now "
+                f"transfers to real telemetry well enough to be measurably better than guessing "
+                f"({logreg_uah.macro_f1:.3f} macro-F1 against "
+                f"{logreg_uah.majority_accuracy:.3f} accuracy for the baseline), and is still a "
+                "long way from usable — `HIGH_RISK` precision of "
+                f"{logreg_hr.precision:.3f} is the clearest single statement of that distance. "
+                "Transfer being non-zero is a result; it is not a release criterion."
+            )
+        else:
+            add(
+                "The honest reading is that a model trained only on scripted simulator drives "
+                "does not yet transfer to real telemetry, and `ml/README.md`'s standing "
+                "instruction applies: that is a finding worth reporting, not hiding."
+            )
         add("")
 
     add("## 1. What was trained on")
@@ -495,39 +578,60 @@ def build_report(
     add("")
     add(ev.render_headline_table(summaries))
     add("")
+    sim_majority_share = max(Counter(labels).values()) / len(labels)
+    uah_majority_clause = (
+        f" — and on UAH, where one class is {_majority_share(uah_metrics[LOGREG_MODEL]):.0%}"
+        if uah_metrics is not None
+        else ""
+    )
     add(
         "**Macro-F1 is the headline, not accuracy.** Accuracy is reported only next to the "
-        "majority-class baseline it has to beat, because on a corpus where one class is 37% "
-        "of windows — and on UAH, where one class is 65% — accuracy mostly measures the class "
-        "balance. Macro-F1 weights all four classes equally, so a model that never predicts "
-        "`HIGH_RISK` cannot hide behind the other three."
+        f"majority-class baseline it has to beat, because on a corpus where one class is "
+        f"{sim_majority_share:.0%} of windows{uah_majority_clause} — accuracy mostly measures "
+        "the class balance. Macro-F1 weights all four classes equally, so a model that never "
+        "predicts `HIGH_RISK` cannot hide behind the other three."
     )
     add("")
 
-    verdict = (
-        "beats" if logreg_summary.macro_f1.mean > tree_summary.macro_f1.mean else "does not beat"
-    )
+    logreg_leads = logreg_summary.macro_f1.mean > tree_summary.macro_f1.mean
+    verdict = "beats" if logreg_leads else "does not beat"
+    better_model = "logistic regression" if logreg_leads else "tree"
     add(
         f"On macro-F1 the logistic regression ({logreg_summary.macro_f1}) **{verdict}** the "
         f"decision tree ({tree_summary.macro_f1}). `ml/README.md` asks for this comparison to be "
-        "reported either way, so it is reported: on held-out simulator variants, the tree is the "
-        "better model by a clear margin."
+        f"reported either way, so it is reported: on held-out simulator variants the "
+        f"{better_model} is ahead, though by a margin the fold-to-fold standard deviations "
+        "above do not clearly separate."
     )
     add("")
     shipped_reason = (
         "`model.json`'s format is a coefficient dump (`pipelines.artifact`), which a tree cannot "
         "use — a tree would need its own node serialisation."
     )
-    if uah_metrics is not None and uah_metrics[TREE_MODEL].zero_recall_labels:
+    # The format argument is the weaker of the two reasons for shipping the
+    # logistic regression, and on its own it reads as a convenience. Where UAH
+    # shows the tree collapsing on the class the product exists to catch, say
+    # so: that is the reason that would still hold if both serialised equally.
+    tree_hr_collapse = uah_metrics is not None and (
+        uah_metrics[TREE_MODEL].high_risk_recall < 0.5 * uah_metrics[LOGREG_MODEL].high_risk_recall
+    )
+    if uah_metrics is not None and tree_hr_collapse:
+        tree_uah_hr = uah_metrics[TREE_MODEL].high_risk_recall
+        logreg_uah_hr = uah_metrics[LOGREG_MODEL].high_risk_recall
+        silent_classes = uah_metrics[TREE_MODEL].zero_recall_labels
+        silence = (
+            f"never predicts {', '.join(silent_classes)} at all"
+            if silent_classes
+            else f"recovers {tree_uah_hr:.1%} of `HIGH_RISK` windows against the logistic "
+            f"regression's {logreg_uah_hr:.1%}"
+        )
         add(
-            "**That margin does not survive contact with real data, and it is the reason the "
-            f"artefact choice is not merely a format decision.** {shipped_reason} That was the "
-            "original justification; section 7 supplies a better one. The tree's advantage here "
-            "is entirely in-domain: on UAH it never predicts "
-            f"{', '.join(uah_metrics[TREE_MODEL].zero_recall_labels)} at all, while the logistic "
-            "regression at least keeps every class reachable. Shipping the model that degrades "
-            "*loudly* rather than the one that degrades *silently* is the right call on a corpus "
-            "this far from its target domain, independent of which scored higher above."
+            "**Whichever way that margin falls, it is not the reason for the artefact choice, "
+            f"and neither is the file format.** {shipped_reason} That was the original "
+            "justification; section 7 supplies a better one. The two models are close in domain "
+            f"and far apart out of it: on UAH the tree {silence}. Shipping the model that "
+            "degrades *loudly* rather than the one that degrades *silently* is the right call on "
+            "a corpus this far from its target domain, independent of which scored higher above."
         )
     else:
         add(f"The shipped artefact is the logistic regression: {shipped_reason}")
@@ -646,6 +750,26 @@ def build_report(
         "reason to look for a leak rather than to celebrate."
     )
     add("")
+    rubric_intent_f1 = intent_metrics["rubric"].macro_f1
+    logreg_intent_f1 = intent_metrics[LOGREG_MODEL].macro_f1
+    if logreg_intent_f1 > rubric_intent_f1:
+        add(
+            f"**On this run it does appear to**: the logistic regression scores "
+            f"{logreg_intent_f1:.3f} against the rubric's {rubric_intent_f1:.3f}, so the "
+            "paragraph above is describing the current numbers, not a hypothetical. Two "
+            "readings, and this report does not choose between them. The benign one: the "
+            "rubric is a hard-threshold decision list, so a window a hair over one cutoff gets "
+            "a different label from its neighbour, while a fitted model smooths across that "
+            "boundary and lands nearer the intent the script was authored for — the model "
+            "beating its own teacher on a *third* label is possible for the same reason "
+            "label noise is not fatal. The one that would matter: `recording_id` determines "
+            "intent, so any feature that encodes which recording a window came from is a "
+            f"leak. The margin is {logreg_intent_f1 - rubric_intent_f1:.3f} macro-F1 over "
+            f"{intent_metrics[LOGREG_MODEL].n_windows} windows from "
+            f"{prepared['variant'].nunique()} variants, which is small enough that neither "
+            "reading is established. Worth a look before anything is built on it."
+        )
+        add("")
     add("Rubric vs intent, as a confusion matrix (rows: intent, columns: rubric label):")
     add("")
     add(ev.render_confusion(intent_metrics["rubric"]))
@@ -731,18 +855,32 @@ def build_report(
             "a model and no UAH row ever entered the training parquet — that guarantee holds — "
             "but the yardstick being measured against was shaped by the thing being measured."
         )
+        # Measured here rather than quoted from M7b: that report's figures were
+        # taken on a corpus that has since been regenerated, and a domain-gap
+        # claim carried forward by hand is exactly the kind that goes stale
+        # without anyone noticing.
+        gap_lines: list[str] = []
+        for feature in ("speed_mean", "accel_std", "lat_accel_std"):
+            if feature not in prepared or feature not in uah_frame:
+                continue
+            gap_lines.append(
+                f"`{feature}` p50 {prepared[feature].median():.3f} against UAH's "
+                f"{uah_frame[feature].median():.3f} (max {prepared[feature].max():.3f} "
+                f"against {uah_frame[feature].max():.3f})"
+            )
         add(
-            "2. **There is a domain gap, not just unseen data.** M7b section 1 measured it: the "
-            "simulator is *smoother than real driving at the median and more extreme at the "
-            "tails* — `accel_std` p50 of 0.127 against UAH's 0.229, but an absolute max of 2.529 "
-            "against 1.311. This tests generalisation across two differently-shaped "
-            "distributions, which is a harder and less interpretable question than "
-            "generalisation to unseen samples of one."
+            "2. **There is a domain gap, not just unseen data.** Measured on the two corpora "
+            "this run actually used: " + "; ".join(gap_lines) + ". This tests generalisation "
+            "across two differently-shaped distributions, which is a harder and less "
+            "interpretable question than generalisation to unseen samples of one."
         )
+        train_hr_share = Counter(labels).get("HIGH_RISK", 0) / len(labels)
+        uah_hr_support = logreg_uah.per_class[CLASS_ORDER.index("HIGH_RISK")].support
         add(
-            "3. **The class balance differs sharply.** `HIGH_RISK` is 12.1% of the training "
-            "corpus and 0.9% of UAH (16 windows). Per-class figures on sixteen windows carry "
-            "confidence intervals wide enough to swallow most conclusions."
+            f"3. **The class balance differs sharply.** `HIGH_RISK` is {train_hr_share:.1%} of "
+            f"the training corpus and {uah_hr_support / logreg_uah.n_windows:.1%} of UAH "
+            f"({uah_hr_support} windows). Per-class figures on that few windows carry confidence "
+            "intervals wide enough to swallow most conclusions."
         )
         add("")
         add("### Cross-tab against UAH's own labels (qualitative only)")
@@ -766,15 +904,37 @@ def build_report(
             risky_share = float(rows["prediction"].isin(["AGGRESSIVE", "HIGH_RISK"]).mean())
             add(f"| {uah_label} | {high_risk_share:.1%} | {risky_share:.1%} | {len(rows)} |")
         add("")
-        normal_rows = uah_frame[uah_frame["uah_label"] == "normal"]
-        normal_risky = float(normal_rows["prediction"].isin(["AGGRESSIVE", "HIGH_RISK"]).mean())
-        add(
-            "The smell test half-passes, and the half that fails is the informative half. The "
-            "**ordering is right**: trips UAH itself called `aggressive` draw a `HIGH_RISK` "
-            "prediction several times more often than `normal` or `drowsy` trips do, and they "
-            "top the combined risky share too. The model has not inverted the problem, and on a "
-            "corpus it was never trained on that is worth something."
-        )
+
+        def _risky_share(uah_label: str) -> float:
+            rows = uah_frame[uah_frame["uah_label"] == uah_label]
+            if rows.empty:
+                return float("nan")
+            return float(rows["prediction"].isin(["AGGRESSIVE", "HIGH_RISK"]).mean())
+
+        normal_risky = _risky_share("normal")
+        aggressive_risky = _risky_share("aggressive")
+        drowsy_risky = _risky_share("drowsy")
+        # The check the cross-tab exists to make, asserted from the numbers
+        # rather than described from memory of them.
+        ordering_holds = aggressive_risky > normal_risky and aggressive_risky > drowsy_risky
+        if ordering_holds:
+            add(
+                "The smell test half-passes, and the half that fails is the informative half. "
+                "The **ordering is right**: trips UAH itself called `aggressive` draw an "
+                f"`AGGRESSIVE`-or-`HIGH_RISK` prediction on {aggressive_risky:.1%} of their "
+                f"windows against {normal_risky:.1%} for `normal` trips and "
+                f"{drowsy_risky:.1%} for `drowsy` ones. The model has not inverted the problem, "
+                "and on a corpus it was never trained on that is worth something."
+            )
+        else:
+            add(
+                "**The smell test fails outright, and that is a finding about the pipeline "
+                "rather than about the model.** Trips UAH itself called `aggressive` draw an "
+                f"`AGGRESSIVE`-or-`HIGH_RISK` prediction on {aggressive_risky:.1%} of their "
+                f"windows against {normal_risky:.1%} for `normal` trips — the severity ordering "
+                "does not hold even qualitatively, which points upstream at the features or the "
+                "rubric before it points at the classifier."
+            )
         add("")
         add(
             f"The **floor is what fails**: {normal_risky:.1%} of windows from trips UAH called "

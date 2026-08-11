@@ -49,11 +49,25 @@ labelling rubric itself (scored against script intent, since scoring it
 against its own labels returns 1.000 by construction). A model that cannot
 beat logistic regression is a finding worth reporting, not hiding.
 
-**M8 produced exactly such a finding, in both directions.** A decision tree
-beat the logistic regression on every simulator fold (macro-F1 0.944 vs
-0.843) — and then predicted `HIGH_RISK` zero times across 1,709 windows of
-real UAH telemetry. Neither model beats a majority-class baseline on real
-data. See [`reports/m8-evaluation.md`](reports/m8-evaluation.md) and the
+**M8 produced exactly such a finding, and then produced a second one that
+partly reversed it.** The first pass: a decision tree beat the logistic
+regression on every simulator fold (macro-F1 0.944 vs 0.843) and then
+predicted `HIGH_RISK` zero times across 1,709 windows of real UAH telemetry,
+with neither model beating a majority-class baseline there. Investigating
+*why* found the cause was largely in the training corpus rather than in the
+models: the scripted drives cruised at ~50 kph against UAH's 91.5 median and
+never steered, leaving four lateral features exactly 0.000 in 58% of windows
+and 0% of real ones. `drivesense_sim.drives` was recalibrated and the corpus
+regenerated. On the current corpus both models clear the baseline on UAH
+(logistic regression 0.520 accuracy and 0.451 macro-F1 against 0.214), the
+logistic regression leads in and out of domain, and the tree still collapses
+on `HIGH_RISK` off-domain (recall 0.062 vs 0.625) — which is why it is the
+logistic regression that ships.
+
+**That is not a pass.** `HIGH_RISK` precision on UAH is 0.105: the model finds
+real high-risk windows by calling six times too many. Transfer is measurably
+non-zero and nowhere near usable. See
+[`reports/m8-evaluation.md`](reports/m8-evaluation.md) and the
 [model card](../docs/model-card.md); the headline is in section 0 of the
 report, not buried at the end.
 

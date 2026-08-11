@@ -22,17 +22,67 @@ split:
 features:
   # ADR 0004: the model's inputs are the shared FEATURE_NAMES, minus the
   # exclusions below. Nothing is added here that inference cannot compute.
+  #
+  # Every exclusion here has the same shape of justification: the feature is
+  # dead or near-dead on the real validation corpus while varying freely in
+  # the simulator, so it is a channel through which a model can learn
+  # something true of the simulator and false of the world. These are model
+  # inputs only — see the note on harsh_braking_per_min about the rubric.
+  #
+  # Simulator-side figures below were re-measured after the M8 recalibration
+  # of drivesense_sim.drives regenerated the corpus. All four exclusions
+  # survived that check, but the numbers moved and are restated rather than
+  # carried forward: the recalibration narrowed several of these gaps without
+  # closing any of them. UAH-side figures are unchanged — that corpus is
+  # fixed input, and its 1,709 windows are the same 1,709.
   exclude:
     rapid_accel_per_min: >-
       Identically 0.0 at every percentile and every maximum across all 1,709
-      UAH validation windows, while reaching 36.1/min on the simulator
-      (ml/reports/m7b-simulator-generation-pilot-and-bulk.md, finding (a)).
-      The 3.0 m/s^2 RAPID_ACCELERATION threshold is simply never crossed by
-      real phone-accelerometer telemetry in this corpus, so the feature
-      carries simulator-only signal: a model leaning on it would score well
-      on simulator folds and lose exactly that much on UAH, for a reason that
-      has nothing to do with driving. Excluded deliberately rather than
-      silently — see docs/model-card.md.
+      UAH validation windows (1 distinct value), against 2 distinct values
+      and a 2.007/min maximum on the simulator. The 3.0 m/s^2
+      RAPID_ACCELERATION threshold is simply never crossed by real
+      phone-accelerometer telemetry in this corpus, so the feature carries
+      simulator-only signal: a model leaning on it would score well on
+      simulator folds and lose exactly that much on UAH, for a reason that
+      has nothing to do with driving. The recalibrated drives reach it far
+      less often than the old ones (which hit 36.1/min — M7b finding (a)),
+      but "less often" is not "never", and a column that is a literal
+      constant on the validation corpus cannot be learned from usefully at
+      any simulator frequency.
+
+    stop_ratio: >-
+      Constant 0.000 across all 1,709 UAH windows — exactly one distinct
+      value — because UAH-DriveSet is entirely motorway and secondary
+      driving and no window ever drops below the 3 kph stop threshold. The
+      simulator produces 13 distinct values for it across 80 windows. A
+      feature that varies in training and is a constant at validation time
+      can only be learned from and never generalise; it is the same defect
+      as rapid_accel_per_min and strictly worse, since the simulator side is
+      livelier.
+
+    lat_accel_time_ratio: >-
+      Zero in 98.4% of UAH windows (18 distinct values) and 86.3% of
+      simulator windows. It asks what fraction of a window exceeds 2.5 m/s^2
+      of lateral load, which almost no real highway window does. Near-dead
+      on both sides, so it contributes noise rather than signal; the same
+      cornering behaviour is carried by lat_accel_std and lat_accel_max_abs,
+      which are non-zero in every window of both corpora and, on UAH, take
+      1,709 and 195 distinct values respectively.
+
+    harsh_braking_per_min: >-
+      Zero in 99.2% of UAH windows — 6 distinct values, 14 non-zero windows
+      in the whole corpus — against 3 distinct values and far larger
+      magnitudes on the simulator. IMPORTANT, and deliberate: this is an
+      exclusion from the MODEL's inputs only. The labelling RUBRIC still uses
+      it (AGGRESSIVE_HARSH_BRAKING_PER_MIN = 2.0 in
+      ml/pipelines/labeling/rubric.py) and that is not an inconsistency. The
+      rubric is a human-authored decision list read by people, where one
+      brake application in 30 s is meaningful evidence on the handful of
+      windows that have it; the model is a fitted function that would treat
+      the same near-constant column as a free simulator-vs-real
+      discriminator. Same feature name, two different consumers, two
+      different appropriate treatments — recorded here, in metadata.json and
+      in docs/model-card.md so it cannot read as an oversight.
 
 models:
   # The bar from ml/README.md: "A model that cannot beat logistic regression
@@ -48,7 +98,7 @@ models:
     class_weight: balanced
 
   # The "can anything beat it" comparison. Depth and leaf size are capped
-  # rather than tuned: an unconstrained tree memorises 827 windows, and there
+  # rather than tuned: an unconstrained tree memorises 1,135 windows, and there
   # is no inner validation loop here to tune against without spending the
   # held-out folds that the reported metrics depend on.
   decision_tree:
