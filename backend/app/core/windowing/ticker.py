@@ -12,9 +12,16 @@ The 30 s span is the span the model was trained on, and the features come from
 That is ADR 0004's whole point: the online path must not compute its own
 version of a feature, so it does not.
 
-**This is plumbing, not the risk engine.** The tick stores its most recent
-result in a module-level dict and stops there. No risk score, no smoothing, no
-WebSocket publishing — those come next, and the seam is `latest_inference`.
+Since M9 the tick does not stop at the prediction. It hands the features and
+the model output to `app.core.risk.assess`, publishes the resulting
+`RiskAssessment` to the trip's WebSocket subscribers, and enqueues it for the
+sink's batched write. The scoring itself stays pure and lives in
+`app.core.risk`; what happens here is only the three things a pure function
+cannot do — call it on a clock, broadcast the answer, and remember it.
+
+Everything after feature extraction is inside the tick's `except`, so a fault
+in scoring, publishing or enqueuing costs one second of risk output rather
+than the rest of the drive's.
 
 Lifecycle mirrors `app.core.events.state` and `app.core.live.broadcaster`:
 created on first use, torn down when the trip ends or is deleted. Unlike a
@@ -33,8 +40,13 @@ from datetime import UTC, datetime
 from app.config import get_settings
 from app.core.features.extract import FeatureContext, extract_features
 from app.core.features.schema import FeatureVector
+from app.core.live import publish
+from app.core.risk import RiskAssessment, assess
+from app.core.risk import sink as risk_sink
 from app.core.windowing import buffer
-from app.ml import ModelOutput, predict
+from app.ml import ModelOutput, model_fingerprint, predict
+from app.schemas.live import LiveMessage
+from app.schemas.risk import RiskOut
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +67,9 @@ class TripInference:
     `model_output` is `None` when no artefact is loaded — a fresh checkout has
     no `model.json` (see `app.ml.loader`), and the tick still runs, still
     extracts features, and still records that it ran.
+
+    `risk` is not optional for the same reason: the rule layer needs no
+    artefact, so every tick that produces features produces an assessment.
     """
 
     tick_index: int
@@ -65,6 +80,7 @@ class TripInference:
     coverage_ratio: float
     features: dict[str, float]
     model_output: ModelOutput | None
+    risk: RiskAssessment
 
 
 _tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
@@ -144,16 +160,28 @@ async def _run(trip_id: uuid.UUID, speed_limit_kph: float) -> None:
             features = vector.as_dict()
             tick_index += 1
             output = predict(features)
+            assessment = assess(
+                features=features,
+                model_output=output,
+                window_start=vector.window_start,
+                window_end=vector.window_end,
+                sample_count=vector.sample_count,
+                coverage_ratio=vector.coverage_ratio,
+                model_version=model_fingerprint(),
+            )
             # DEBUG, not INFO: once per second per live trip. Enough to watch
             # the tick from a running server's logs without an endpoint to
             # query — which there deliberately is not yet.
             logger.debug(
-                "trip %s tick %d: %d samples, coverage %.2f -> %s",
+                "trip %s tick %d: %d samples, coverage %.2f -> %s / risk %.1f %s (%s)",
                 trip_id,
                 tick_index,
                 vector.sample_count,
                 vector.coverage_ratio,
                 output.predicted_class if output is not None else "rule-only (no artefact)",
+                assessment.score,
+                assessment.band.value,
+                assessment.provenance.value,
             )
             _latest[trip_id] = TripInference(
                 tick_index=tick_index,
@@ -164,7 +192,20 @@ async def _run(trip_id: uuid.UUID, speed_limit_kph: float) -> None:
                 coverage_ratio=vector.coverage_ratio,
                 features=features,
                 model_output=output,
+                risk=assessment,
             )
+            # Publish before persisting. The browser is the latency-sensitive
+            # consumer and the database is not, so the write must never sit
+            # between the score and the screen.
+            publish(
+                trip_id,
+                LiveMessage(
+                    type="risk",
+                    data=RiskOut.from_assessment(assessment).model_dump(mode="json"),
+                ).model_dump(mode="json"),
+            )
+            risk_sink.enqueue(trip_id, assessment)
+            await risk_sink.flush_if_due(trip_id)
         except Exception:
             # One bad window must not kill the trip's scoring for the rest of
             # the drive; log it and tick again in a second.

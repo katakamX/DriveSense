@@ -19,6 +19,7 @@ would hide that.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -56,6 +57,13 @@ class ModelOutput:
 # Module state: the loaded artefact, or None when there is none to load.
 _payload: dict[str, Any] | None = None
 _source_path: Path | None = None
+_fingerprint: str | None = None
+
+# Enough hex to identify an artefact in a log line or a database column
+# without being a full hash nobody reads. Collision risk is irrelevant here:
+# this distinguishes a handful of artefacts over a project's life, not a
+# content-addressed store.
+FINGERPRINT_LENGTH = 12
 
 
 def load_model(path: Path | None = None) -> dict[str, Any] | None:
@@ -64,7 +72,7 @@ def load_model(path: Path | None = None) -> dict[str, Any] | None:
     Called from the application lifespan. Idempotent enough to call again with
     an explicit path (tests do); the last successful load wins.
     """
-    global _payload, _source_path
+    global _payload, _source_path, _fingerprint
 
     resolved = path if path is not None else get_settings().model_path
     if not resolved.is_file():
@@ -73,14 +81,17 @@ def load_model(path: Path | None = None) -> dict[str, Any] | None:
             "(train one with `python -m pipelines.train`)",
             resolved,
         )
-        _payload, _source_path = None, None
+        _payload, _source_path, _fingerprint = None, None, None
         return None
 
+    raw = resolved.read_bytes()
     payload = read_model_json(resolved)
     _payload, _source_path = payload, resolved
+    _fingerprint = hashlib.sha256(raw).hexdigest()[:FINGERPRINT_LENGTH]
     logger.info(
-        "Loaded model artefact %s: %d classes, %d features",
+        "Loaded model artefact %s (%s): %d classes, %d features",
         resolved,
+        _fingerprint,
         len(payload["classes"]),
         len(payload["feature_names"]),
     )
@@ -89,8 +100,8 @@ def load_model(path: Path | None = None) -> dict[str, Any] | None:
 
 def unload_model() -> None:
     """Drop the loaded artefact. For tests, and for symmetry with `load_model`."""
-    global _payload, _source_path
-    _payload, _source_path = None, None
+    global _payload, _source_path, _fingerprint
+    _payload, _source_path, _fingerprint = None, None, None
 
 
 def get_model() -> dict[str, Any] | None:
@@ -105,6 +116,18 @@ def model_is_loaded() -> bool:
 def model_source() -> Path | None:
     """Where the loaded artefact came from. For diagnostics."""
     return _source_path
+
+
+def model_fingerprint() -> str | None:
+    """Short content hash of the loaded artefact, or `None` when rule-only.
+
+    `model.json` carries no version of its own — `metadata` records the
+    training corpus, not an identity — so a stored risk assessment needs
+    something to point at when asked which artefact produced it. Hashing the
+    file's bytes gives that for free and cannot drift from the contents the
+    way a hand-maintained version string can.
+    """
+    return _fingerprint
 
 
 def predict(features: Mapping[str, float]) -> ModelOutput | None:

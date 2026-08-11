@@ -13,6 +13,7 @@ else.
 """
 
 import asyncio
+import json
 import time
 import uuid
 from collections.abc import Iterator
@@ -24,10 +25,18 @@ from fastapi.testclient import TestClient
 
 from app.api.v1 import trips as trips_api
 from app.core.features import FeatureSample
+from app.core.live import broadcaster
+from app.core.risk import sink as risk_sink
+from app.core.risk.schema import Provenance, RiskBand
 from app.core.windowing import buffer, ticker
 from app.ml import load_model, unload_model
 
-FIXTURE_MODEL = Path(__file__).parent / "fixtures" / "model.json"
+# The risk engine requires an artefact whose classes *are* the four risk bands
+# (see `app.core.risk.score.expected_severity`), so the tick's model path is
+# exercised with the band-classed fixture rather than `fixtures/model.json`,
+# whose three invented class names exist to test the loader and nothing else.
+FIXTURE_MODEL = Path(__file__).parent / "fixtures" / "risk" / "toy_model.json"
+MODEL_CLASSES = {"CALM", "NORMAL", "AGGRESSIVE", "HIGH_RISK"}
 
 T0 = datetime(2026, 8, 9, 10, 0, tzinfo=UTC)
 
@@ -49,15 +58,24 @@ def _samples(count: int, *, rate_hz: float = 10.0, start_index: int = 0) -> list
 
 
 @pytest.fixture(autouse=True)
-def _clean_windowing_state() -> Iterator[None]:
-    """No trip's buffer, task or artefact may outlive its test.
+def _clean_windowing_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """No trip's buffer, task, artefact or queued risk row may outlive its test.
 
     Unloads on the way *in* as well as out: any earlier test that started the
     app lifespan loaded whatever real artefact happens to sit in
     `ml/artifacts/`, and a test asserting the rule-only path must not pass or
     fail depending on whether this checkout has been trained on.
+
+    The sink's flush bounds are raised out of reach for the duration. Most
+    tests here tick against a `uuid4()` that has no `trips` row, so a flush
+    would hit a foreign-key violation that says nothing about windowing. What
+    the tick owes the sink is that it *enqueues*; that the sink then writes in
+    batches is `test_risk_sink.py`'s subject, against real trips.
     """
     unload_model()
+    risk_sink.reset()
+    monkeypatch.setattr(risk_sink, "FLUSH_ROWS", 1_000_000)
+    monkeypatch.setattr(risk_sink, "FLUSH_INTERVAL_S", 1_000_000.0)
     yield
     for trip_id in list(ticker._tasks):
         task = ticker._tasks.pop(trip_id)
@@ -65,6 +83,7 @@ def _clean_windowing_state() -> Iterator[None]:
     ticker._latest.clear()
     for trip_id in list(buffer._buffers):
         buffer.discard_trip(trip_id)
+    risk_sink.reset()
     unload_model()
 
 
@@ -198,6 +217,11 @@ async def test_the_tick_extracts_features_without_an_artefact(
     assert latest.sample_count == 300
     assert latest.features["speed_mean"] > 0.0
     assert latest.coverage_ratio == pytest.approx(1.0)
+    # And still scored. The rule layer needs no artefact, so every tick that
+    # produces features produces an assessment.
+    assert latest.risk.provenance is Provenance.RULES_ONLY
+    assert latest.risk.model_available is False
+    assert 0.0 <= latest.risk.score <= 100.0
 
 
 async def test_the_tick_produces_model_output_when_an_artefact_is_loaded(
@@ -212,8 +236,72 @@ async def test_the_tick_produces_model_output_when_an_artefact_is_loaded(
     latest = await _wait_for_tick(trip_id)
 
     assert latest.model_output is not None
-    assert latest.model_output.predicted_class in {"SAFE", "AGGRESSIVE", "HIGH_RISK"}
+    assert latest.model_output.predicted_class in MODEL_CLASSES
     assert sum(latest.model_output.probabilities.values()) == pytest.approx(1.0)
+    assert latest.risk.model_available is True
+    assert latest.risk.model_band is not None
+    assert latest.risk.model_version is not None
+
+
+async def test_the_tick_enqueues_every_assessment_for_the_sink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The seam between the tick and persistence: enqueue, not write."""
+    monkeypatch.setattr(ticker, "TICK_INTERVAL_S", 0.02)
+    trip_id = uuid.uuid4()
+    buffer.append(trip_id, _samples(300))
+
+    ticker.ensure_started(trip_id, speed_limit_kph=100.0)
+    await _wait_for_tick(trip_id)
+
+    assert risk_sink.pending_count(trip_id) >= 1
+    accumulator = risk_sink.accumulator_for(trip_id)
+    assert accumulator is not None
+    assert accumulator.window_count >= 1
+
+
+async def test_the_tick_publishes_a_risk_message_to_subscribers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """What the browser receives. Taken off the broadcaster queue the WS endpoint reads."""
+    monkeypatch.setattr(ticker, "TICK_INTERVAL_S", 0.02)
+    load_model(FIXTURE_MODEL)
+    trip_id = uuid.uuid4()
+    buffer.append(trip_id, _samples(300))
+    queue = broadcaster.subscribe(trip_id)
+
+    try:
+        ticker.ensure_started(trip_id, speed_limit_kph=100.0)
+        latest = await _wait_for_tick(trip_id)
+        message = await asyncio.wait_for(queue.get(), timeout=2.0)
+    finally:
+        broadcaster.unsubscribe(trip_id, queue)
+
+    assert message["type"] == "risk"
+    data = message["data"]
+    assert data["band"] == latest.risk.band.value
+    assert data["score"] == pytest.approx(latest.risk.score)
+    assert data["provenance"] == latest.risk.provenance.value
+    assert data["risk_engine_version"] == latest.risk.risk_engine_version
+    assert data["window_end"] == latest.window_end.isoformat()
+    # JSON-serialisable as published, not merely as a Python object.
+    json.dumps(message)
+
+
+async def test_the_tick_never_emits_high_risk_without_the_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADR 0007, asserted where it actually reaches a user rather than only in the unit."""
+    monkeypatch.setattr(ticker, "TICK_INTERVAL_S", 0.02)
+    load_model(FIXTURE_MODEL)
+    trip_id = uuid.uuid4()
+    buffer.append(trip_id, _samples(300))
+
+    ticker.ensure_started(trip_id, speed_limit_kph=100.0)
+    latest = await _wait_for_tick(trip_id)
+
+    if latest.risk.band is RiskBand.HIGH_RISK:
+        assert latest.risk.rule_band is RiskBand.HIGH_RISK
 
 
 async def test_a_short_window_does_not_tick_yet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -451,11 +539,16 @@ def test_a_live_trip_ticks_at_1hz_and_produces_model_output(client: TestClient) 
     assert first is not None, "no tick fired within 1.5s of the first batch"
     assert first.sample_count == 300
     assert first.model_output is not None
-    assert first.model_output.predicted_class in {"SAFE", "AGGRESSIVE", "HIGH_RISK"}
-    assert set(first.model_output.contributions) == {"SAFE", "AGGRESSIVE", "HIGH_RISK"}
+    assert first.model_output.predicted_class in MODEL_CLASSES
+    assert set(first.model_output.contributions) == MODEL_CLASSES
 
     assert second is not None
     assert second.tick_index > first.tick_index, "the tick fired once and stopped"
+
+    # And a risk assessment came out the far end of the same tick.
+    assert first.risk.model_available is True
+    assert first.risk.window_end == first.window_end
+    assert first.risk.contributions, "an explained band with no contributions"
 
 
 def test_ending_a_trip_stops_its_tick_and_releases_its_buffer(client: TestClient) -> None:

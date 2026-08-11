@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.events import discard_trip, flush_trip
 from app.core.live import publish
+from app.core.risk import sink as risk_sink
 from app.core.windowing import stop_trip
 from app.db.models import DrivingEvent, Trip
 from app.db.session import get_db
@@ -79,6 +80,12 @@ async def update_trip(
         # over holds no in-process state. Cancels the tick and waits for it,
         # then releases the buffer.
         await stop_trip(trip_id)
+        # Strictly after `stop_trip`, which awaits the tick's cancellation:
+        # a tick still running here could enqueue an assessment after the
+        # flush had already read the queue, and that row would be lost.
+        # Passing this request's session puts the trailing risk rows and the
+        # trip's summary columns in the same transaction as its status change.
+        await risk_sink.finalise_trip(trip_id, session=db)
     for event in trailing:
         db.add(
             DrivingEvent(
@@ -115,7 +122,14 @@ async def delete_trip(trip_id: uuid.UUID, db: AsyncSession = Depends(get_db)) ->
     trip = await db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Trip not found")
+    # Drop the sink's pending rows *before* the delete: they carry this
+    # trip_id as a foreign key, and a flush racing the delete would insert
+    # rows referencing a trip that no longer exists.
+    risk_sink.discard_trip(trip_id)
     await db.delete(trip)
     await db.commit()
     discard_trip(trip_id)
     await stop_trip(trip_id)
+    # Again after the tick has been awaited to a stop, since a final tick
+    # could have enqueued between the first call and the cancellation.
+    risk_sink.discard_trip(trip_id)

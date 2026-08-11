@@ -22,6 +22,7 @@ if sys.platform == "win32":
 
 from app.api.v1 import drivers, health, live, telemetry, trips, vehicles
 from app.config import get_settings
+from app.core.risk import sink as risk_sink
 from app.core.windowing import stop_all
 from app.db.session import dispose_engine
 from app.ml import load_model
@@ -41,6 +42,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # shutdown has one running, and it has to be cancelled before the loop
     # closes underneath it.
     await stop_all()
+    # Then drain whatever those ticks had queued but not yet written. Order
+    # matters twice over: after `stop_all` so nothing can enqueue behind the
+    # drain, and before `dispose_engine` so the drain still has a pool to
+    # write through.
+    await risk_sink.stop_all()
     await dispose_engine()
     logger.info("Shutdown complete")
 

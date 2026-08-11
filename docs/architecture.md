@@ -44,7 +44,7 @@ with meaningful trade-offs are recorded separately as ADRs in [`adr/`](adr/).
 | `backend/app/core/windowing` | Bounded in-memory ring buffer per active trip. | 4 |
 | `backend/app/core/events` | Threshold-based driving-event detection. Deterministic and configurable — not ML. | 5 |
 | `backend/app/core/features` | Telemetry window → feature vector. **The only implementation** (ADR 0004). | 7 |
-| `backend/app/core/risk` | Pure, versioned, explainable risk scoring. | 9 |
+| `backend/app/core/risk` | Pure, versioned, explainable risk scoring, and the rule layer both it and the offline labeller read (ADR 0007). One impure module, `sink`, batches the writes. | 9 |
 | `backend/app/ml` | Model loading and inference, with rule-only fallback when no artefact is present. | 8 |
 | `ml/` | Offline pipeline: clean → window → featurise → label → split → train → evaluate. | 7, 8 |
 | `cv/` | Camera capture, facial landmarks, drowsiness estimation. Separate process (ADR 0002). | 10 |
@@ -64,6 +64,11 @@ with meaningful trade-offs are recorded separately as ADRs in [`adr/`](adr/).
 - **Shared contracts package.** `TelemetryFrame` has one definition;
   `TelemetrySource` is producer-side and the backend never imports it.
   → [ADR 0005](adr/0005-shared-contracts-package.md)
+- **Rules gate the risk engine's top band.** `HIGH_RISK` is emitted only when
+  the rule layer independently reaches it; the model alone caps at
+  `AGGRESSIVE`. Measured `HIGH_RISK` precision of 0.105 on real telemetry is
+  the reason, and the condition for removing the gate is stated.
+  → [ADR 0007](adr/0007-risk-engine-rule-gating.md)
 - **Plain PostgreSQL.** TimescaleDB is considered only if load testing at
   Milestone 4 shows it is needed.
 - **No authentication.** DriveSense is a single-tenant demonstration system.
@@ -98,7 +103,7 @@ benchmarking and deployment polish follow and must not block the core.
 | 6 | Design system + Dashboard + Live Drive | Real UI on real live data |
 | 7 | Dataset + shared feature engineering | Feature parity test passes |
 | 8 | Model training + honest evaluation | Committed metrics and model card |
-| 9 | Risk engine + explainability | Golden and property tests pass |
+| 9 | Risk engine + explainability | Golden and property tests pass ✅ |
 | 10 | CV driver monitoring | 15 FPS standalone; degrades cleanly |
 | 11 | Real-time hardening | Survives backend restart without UI breakage |
 | 12 | Remaining dashboard pages | All eight pages functional |

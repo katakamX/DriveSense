@@ -1,0 +1,26 @@
+{
+  "format": "drivesense-multinomial-logreg",
+  "format_version": "1",
+  "decision_rule": "z = (x - standardiser.mean) / standardiser.scale; scores = coefficients @ z + intercepts; proba = softmax(scores); prediction = classes[argmax(proba)]",
+  "classes": ["AGGRESSIVE", "CALM", "HIGH_RISK", "NORMAL"],
+  "feature_names": ["speed_mean", "accel_std", "accel_max", "speeding_time_ratio"],
+  "excluded_features": {
+    "_note": "This is not a trained artefact. It is a hand-written four-feature stand-in whose only job is to make the model path of the risk engine reachable in CI, because ml/artifacts/ is gitignored and a fresh checkout has no model.json. Its coefficients were chosen to be monotone in severity and readable by a human; they were not fitted to anything and predict nothing about real driving."
+  },
+  "standardiser": {
+    "mean": [50.0, 0.3, 1.0, 0.2],
+    "scale": [20.0, 0.2, 0.8, 0.3]
+  },
+  "coefficients": [
+    [0.3, 0.9, 0.6, 0.45],
+    [-0.6, -1.5, -1.2, -0.9],
+    [0.7, 1.8, 1.5, 1.1],
+    [-0.2, -0.6, -0.4, -0.3]
+  ],
+  "intercepts": [0.1, 0.4, -0.6, 0.3],
+  "metadata": {
+    "kind": "test fixture",
+    "purpose": "Deterministic model path for backend/tests/test_risk_golden.py",
+    "not_a_model_of": "any real vehicle, driver, or corpus"
+  }
+}
