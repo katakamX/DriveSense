@@ -37,6 +37,18 @@ MAX_QUEUED_FRAMES = 8
 # POST failures themselves.
 DROP_LOG_INTERVAL_S = 10.0
 
+# Longest error-response body written to the log. FastAPI's own error
+# payloads are well under this; the cap exists for HTML error pages from
+# whatever sits between this process and the backend.
+MAX_LOGGED_BODY_CHARS = 500
+
+
+def _truncate(body: str) -> str:
+    body = body.strip()
+    if len(body) <= MAX_LOGGED_BODY_CHARS:
+        return body
+    return f"{body[:MAX_LOGGED_BODY_CHARS]}... ({len(body)} chars total)"
+
 
 class DriverStateClient:
     def __init__(self, base_url: str, timeout_s: float = 2.0) -> None:
@@ -99,7 +111,27 @@ class DriverStateClient:
             )
             response.raise_for_status()
             return True
+        except httpx.HTTPStatusError as exc:
+            # The status line alone is not diagnostic here: the ingest endpoint
+            # returns 422 both for a schema violation (`detail` is a list of
+            # field errors) and for a well-formed body whose `trip_id` is not a
+            # UUID (`detail` is a string). Only the body distinguishes them, so
+            # log it — truncated, since an error page from a proxy in front of
+            # the backend can be arbitrarily long.
+            # Formatted from the response rather than logged as `exc`, whose
+            # str() is a two-line message ending in an MDN link — it would push
+            # the body, the only part that identifies the fault, onto a second
+            # line below a paragraph of boilerplate.
+            logger.warning(
+                "Failed to POST driver state: HTTP %d from %s: %s",
+                exc.response.status_code,
+                exc.request.url,
+                _truncate(exc.response.text),
+            )
+            return False
         except httpx.HTTPError as exc:
+            # Transport-level failure (connect refused, timeout, DNS): there is
+            # no response to read a body from.
             logger.warning("Failed to POST driver state: %s", exc)
             return False
 

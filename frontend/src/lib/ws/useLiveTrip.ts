@@ -26,9 +26,16 @@ export interface LiveEvent {
   threshold_value: number;
 }
 
+/**
+ * The backend's LiveMessage.type is a four-way literal — `risk` (1 Hz, from
+ * the inference tick) and `driver_state` (1 Hz, from the CV process) share
+ * this socket with `telemetry` and `event`. This page renders neither, but
+ * they must still be named here so the dispatch below can ignore them by
+ * name rather than lumping every non-telemetry frame in with the events.
+ */
 interface LiveEnvelope {
-  type: 'telemetry' | 'event';
-  data: LiveTelemetry | LiveEvent;
+  type: 'telemetry' | 'event' | 'risk' | 'driver_state';
+  data: LiveTelemetry | LiveEvent | Record<string, unknown>;
 }
 
 const MAX_EVENTS = 20;
@@ -69,9 +76,11 @@ export function useLiveTrip(tripId: string): LiveTripState {
       const message = JSON.parse(event.data) as LiveEnvelope;
       if (message.type === 'telemetry') {
         setLatestFrame(message.data as LiveTelemetry);
-      } else {
+      } else if (message.type === 'event') {
         setEvents((prev) => [message.data as LiveEvent, ...prev].slice(0, MAX_EVENTS));
       }
+      // `risk` and `driver_state` are dropped: nothing on this page consumes
+      // them yet. Unknown future types fall through here too.
     };
 
     return () => {

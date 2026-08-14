@@ -19,6 +19,7 @@ import contextlib
 import logging
 import sys
 import time
+import uuid
 from datetime import UTC, datetime
 
 import cv2
@@ -240,6 +241,20 @@ def main() -> None:
         help="show a live preview window with the tracked eye landmarks drawn (manual testing)",
     )
     args = parser.parse_args()
+
+    # Fail here rather than at the first POST. The ingest endpoint parses
+    # `trip_id` out of the body itself and rejects a non-UUID with 422, so an
+    # id that is merely the wrong shape produces no camera-side symptom at
+    # all: capture and calibration run normally while every report is
+    # rejected, once a second, for as long as the process lives.
+    try:
+        uuid.UUID(args.trip_id)
+    except ValueError:
+        parser.error(
+            f"--trip-id must be a trip UUID, got {args.trip_id!r}. "
+            "Create a trip with POST /api/v1/trips (or take an existing id "
+            "from GET /api/v1/trips) and pass the `id` it returns."
+        )
 
     try:
         run(

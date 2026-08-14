@@ -12,6 +12,14 @@ const CONNECTION_LABEL: Record<ConnectionState, { text: string; dot: string }> =
   unreachable: { text: 'Disconnected', dot: 'bg-risk-critical' },
 };
 
+/**
+ * Event rows come straight off the socket, so a malformed or partial payload
+ * must degrade to a dash rather than take the whole page down with it.
+ */
+function formatMeasure(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
+}
+
 const EVENT_TONE: Record<string, BadgeTone> = {
   harsh_braking: 'high',
   rapid_acceleration: 'high',
@@ -77,7 +85,7 @@ export function LiveDrive() {
               >
                 <Badge tone={EVENT_TONE[event.event_type] ?? 'neutral'}>{event.event_type}</Badge>
                 <span className="tabular text-sm text-content-secondary">
-                  {event.measured_value.toFixed(2)} / {event.threshold_value.toFixed(2)}
+                  {formatMeasure(event.measured_value)} / {formatMeasure(event.threshold_value)}
                 </span>
                 <span className="tabular text-xs text-content-muted">
                   {new Date(event.occurred_at).toLocaleTimeString()}
