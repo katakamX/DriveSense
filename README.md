@@ -4,13 +4,20 @@
 driver-camera signals to detect driving events, classify driving behaviour, and
 produce an explainable real-time driver-risk score.
 
-> **Status: Milestone 2 of 15 — interactive vehicle simulator.**
-> A driveable manual-transmission simulator produces telemetry from a real
-> simulated vehicle state, recordable as JSONL. The backend serves health
-> endpoints and the frontend renders a status page. Backend telemetry ingest,
-> event detection, ML, computer vision and the risk engine are **not**
-> implemented yet. Nothing in this repository claims functionality it does not
-> have.
+> **Status: Milestones 1–10 of 15 complete; Milestone 11 (real-time
+> hardening) in progress.**
+> The end-to-end path works: the simulator produces telemetry, the backend
+> ingests it at 10 Hz into an in-process ring buffer, detects driving events,
+> extracts features, runs a trained classifier and a rule-gated risk engine on
+> a 1 Hz tick, and pushes the result to a React dashboard over a WebSocket. A
+> separate CV process estimates drowsiness from a real webcam and posts driver
+> state back at 1 Hz.
+>
+> What is **not** done: the backend does not yet survive a restart without the
+> browser needing a reload (that is M11), six of the eight dashboard pages do
+> not exist (M12), there is no OBD2 integration (M13), and **the trained model
+> is not fit for production use** — see [Model status](#model-status) below for
+> the number that says so. Nothing here claims functionality it does not have.
 
 ## What this is
 
@@ -22,9 +29,14 @@ Telemetry processing  →  Driving event detection
    ML behaviour  ←  features     │      Computer vision (separate process)
         ↓                        ↓                ↓
               Explainable risk engine  ←──────────┘
-                         ↓
+                         ↓                    (not yet an input — see below)
         FastAPI  →  WebSocket / REST  →  React dashboard
 ```
+
+The leg from computer vision into the risk engine is the one part of this
+diagram that is not yet wired: driver state is persisted and broadcast to the
+browser, but the risk engine does not consume it. The risk score is currently
+derived from telemetry features alone.
 
 Full detail in [docs/architecture.md](docs/architecture.md). Decisions with
 real trade-offs are recorded as ADRs in [docs/adr/](docs/adr/):
@@ -34,17 +46,20 @@ real trade-offs are recorded as ADRs in [docs/adr/](docs/adr/):
 - [0003 — Why Redis is deferred](docs/adr/0003-defer-redis.md)
 - [0004 — Why feature engineering has one implementation](docs/adr/0004-shared-feature-engineering.md)
 - [0005 — Shared contracts package; `TelemetrySource` is producer-side](docs/adr/0005-shared-contracts-package.md)
+- [0006 — The training-label rubric is weak supervision, not ground truth](docs/adr/0006-training-label-rubric.md)
+- [0007 — The model can raise a risk band but never independently reach `HIGH_RISK`](docs/adr/0007-risk-engine-rule-gating.md)
 
 ## Tech stack
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Recharts, Lucide |
-| Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 |
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, React Router, Lucide |
+| Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0, Alembic |
 | Database | PostgreSQL 16 |
 | Real-time | WebSockets (in-process fan-out — see ADR 0003) |
-| ML | NumPy, pandas, scikit-learn, XGBoost |
-| Computer vision | OpenCV, MediaPipe |
+| ML (offline) | pandas, PyArrow, scikit-learn — logistic regression and decision tree |
+| ML (serving) | Plain NumPy over a JSON coefficient dump; no scikit-learn at runtime |
+| Computer vision | OpenCV, MediaPipe Tasks (`FaceLandmarker`) |
 | Infrastructure | Docker, Docker Compose, GitHub Actions |
 
 ## Quick start
@@ -62,12 +77,24 @@ Development stack with hot reload on both services:
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
+Migrations are **not** run by the stack and the application does not create
+tables implicitly. Apply them once the database is healthy:
+
+```bash
+docker compose exec backend alembic upgrade head
+```
+
 | Service | URL |
 | --- | --- |
 | Frontend (production build) | http://localhost:3000 |
 | Frontend (dev server) | http://localhost:5173 |
 | Backend API | http://localhost:8000/api/v1 |
 | API docs | http://localhost:8000/docs |
+
+Two pages exist so far: the Dashboard at `/`, and Live Drive at
+`/trips/:tripId/live` — which is the one that renders real live data off the
+WebSocket. Create a driver, a vehicle and a trip through the API (or `/docs`),
+point the simulator at that trip, then open its Live Drive URL.
 
 ### Vehicle simulator
 
@@ -86,6 +113,27 @@ Controls: `W` throttle · `S` brake · `A`/`D` steer · `Shift` gear up ·
 `Ctrl` gear down · `R` reverse · `N` neutral · `Space` clutch · `F1` record ·
 `Esc` quit. Details in [simulator/README.md](simulator/README.md).
 
+### Driver monitoring (camera)
+
+Runs as its own process against a real webcam and posts derived scalars — never
+frames — to the backend at 1 Hz. The trip must already exist, or the ingest
+endpoint 404s.
+
+```bash
+cd cv
+python -m venv .venv
+.venv/Scripts/activate            # Windows;  source .venv/bin/activate on Unix
+pip install -e .
+
+python main.py --trip-id <uuid> --backend-url http://localhost:8000
+```
+
+Useful flags: `--device-index` (default 0), `--fps` (default 15),
+`--calibration-samples` (default 30), `--debug-window` for a live preview with
+the tracked eye contours. Eye-aspect-ratio thresholds are person-specific, so a
+short neutral-face calibration runs at session start. Details in
+[cv/README.md](cv/README.md).
+
 ### Without Docker
 
 **Backend**
@@ -95,6 +143,7 @@ cd backend
 python -m venv .venv
 .venv/Scripts/activate          # Windows;  source .venv/bin/activate on Unix
 pip install -e ".[dev]"
+alembic upgrade head             # schema — nothing creates it implicitly
 
 # Windows — recommended, frees the port first (see below)
 powershell -ExecutionPolicy Bypass -File scripts/dev_server.ps1
@@ -139,22 +188,98 @@ cd frontend
 npm run typecheck && npm run lint && npm run format:check && npm run build
 ```
 
-A `Makefile` wraps these as `make backend-check`, `make frontend-check` and
-`make check`. CI runs the same commands plus a Docker image build on every
-push and pull request.
+The same four commands (`ruff check`, `ruff format --check`, `mypy`, `pytest`)
+run in `contracts/`, `simulator/`, `ml/` and `cv/` as well, each against its own
+virtualenv.
+
+A `Makefile` wraps the common ones as `make contracts-check`,
+`make simulator-check`, `make backend-check`, `make frontend-check` and
+`make check` (which runs those four — `ml` and `cv` are not in it yet). CI runs
+six matching jobs plus a Docker image build on every push and pull request.
+
+### Training the model
+
+```bash
+cd ml
+python -m pipelines.train        # writes ml/artifacts/model.json + reports
+```
+
+The artefact is gitignored and regenerated from committed configs. Every number
+in [ml/reports/](ml/reports/) is produced by that command; none is typed in by
+hand. The backend loads `model.json` as an explicit coefficient dump, so the
+serving path unpickles nothing and does not depend on scikit-learn. With no
+artefact present the risk engine still runs, rule-only.
 
 ## API
 
-Currently implemented:
+All paths are under `/api/v1`. Generated schema at `/openapi.json`, interactive
+docs at `/docs`.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/api/v1/health` | Liveness. Never touches external systems. |
-| `GET` | `/api/v1/health/ready` | Readiness. Verifies database connectivity; returns `503` when unreachable. |
-| `GET` | `/openapi.json` | Generated OpenAPI schema. |
+| `GET` | `/health` | Liveness. Never touches external systems. |
+| `GET` | `/health/ready` | Readiness. Verifies database connectivity; returns `503` when unreachable. |
+| `POST` `GET` `PATCH` `DELETE` | `/drivers`, `/drivers/{id}` | Driver CRUD. |
+| `POST` `GET` `PATCH` `DELETE` | `/vehicles`, `/vehicles/{id}` | Vehicle CRUD. |
+| `POST` `GET` `PATCH` `DELETE` | `/trips`, `/trips/{id}` | Trip CRUD. `PATCH` ends a trip, which flushes pending risk rows and stamps the trip's risk summary in one transaction. |
+| `POST` | `/trips/{trip_id}/telemetry/batch` | Batched telemetry ingest. Feeds the ring buffer, event detection and the inference tick. |
+| `POST` | `/ingest/driver-state` | Driver state from the CV process. `trip_id` travels in the payload, not the path — see ADR 0002. |
+| `WS` | `/trips/{trip_id}/live` | Live stream. Envelope is `{ type, data }` with `type` one of `telemetry`, `event`, `risk`, `driver_state`. Closes `4404` for an unknown trip. |
 
-Drivers, vehicles, trips, telemetry, events, analytics, risk and the WebSocket
-interface arrive in Milestones 3–5.
+There are deliberately **no read endpoints for telemetry frames, driving events
+or risk windows yet** — the live path is the WebSocket, and the historical read
+surface arrives with the dashboard pages in M12.
+
+## Model status
+
+The behaviour classifier is trained and evaluated, and the evaluation says not
+to trust it. Full detail in [docs/model-card.md](docs/model-card.md) and
+[ml/reports/m8-evaluation.md](ml/reports/m8-evaluation.md).
+
+| | Result |
+| --- | --- |
+| Held-out simulator drives | macro-F1 **0.922 ± 0.016** |
+| Real UAH-DriveSet telemetry (1,709 windows) | **0.520** accuracy, **0.451** macro-F1, against a **0.214** majority-class baseline |
+| `HIGH_RISK` precision on real telemetry | **0.105** — 10 of 16 true windows recovered by predicting the class 95 times |
+
+Better than guessing on real driving, and a long way from usable. That gap is
+the reason for [ADR 0007](docs/adr/0007-risk-engine-rule-gating.md): the model
+can raise a risk band but can never independently reach `HIGH_RISK`, so a
+`HIGH_RISK` verdict always has a matched rule behind it.
+
+The first M8 run scored *worse* than the baseline (0.302 against 0.650). The
+cause was a defect in the simulator corpus, not the estimator, and both numbers
+are kept in the model card rather than the bad one being deleted.
+
+## Milestones
+
+Each has an exit criterion it had to meet before the next one started; the full
+table is in [docs/architecture.md](docs/architecture.md).
+
+| # | Milestone | |
+| --- | --- | --- |
+| 1 | Architecture, scaffold, Docker skeleton, CI | ✅ |
+| 2 | Interactive vehicle simulator + shared contracts | ✅ |
+| 3 | FastAPI + PostgreSQL + migrations + CRUD | ✅ |
+| 4 | Ingest pipeline + batched persistence | ✅ |
+| 5 | Event detection + thin WebSocket path | ✅ |
+| 6 | Design system + Dashboard + Live Drive | ✅ |
+| 7 | Dataset + shared feature engineering | ✅ |
+| 8 | Model training + honest evaluation | ✅ |
+| 9 | Risk engine + explainability | ✅ |
+| 10 | CV driver monitoring | ✅ |
+| 11 | Real-time hardening — survives backend restart without UI breakage | in progress |
+| 12 | Remaining dashboard pages | |
+| 13 | OBD2 / ELM327 integration | |
+| 14 | Test hardening + benchmarking | |
+| 15 | Deployment polish + documentation | |
+
+Milestones 9 and 10 were live-verified against a real trained model and a real
+webcam respectively, not only against tests.
+
+The end-to-end latency target (ingest → browser, < 150 ms) is stated in the
+architecture document but **has not been measured yet** — that is M14, and it
+will be reported with real numbers or not at all.
 
 ## Repository layout
 
@@ -162,12 +287,21 @@ interface arrive in Milestones 3–5.
 contracts/   Shared TelemetryFrame and producer-side protocols
 simulator/   Interactive vehicle simulator and telemetry producer
 backend/     FastAPI application, database layer, pipeline, risk engine
-frontend/    React dashboard
-ml/          Offline ML pipeline and evaluation reports   (Milestone 7)
-cv/          Driver-monitoring service, separate process  (Milestone 10)
-docs/        Architecture and ADRs
+  app/core/windowing/   Ring buffer + 1 Hz inference tick
+  app/core/events/      Driving-event detection
+  app/core/features/    Feature extraction — the one implementation (ADR 0004)
+  app/core/risk/        Rule-gated risk engine, explainability, batched sink
+  app/core/live/        In-process WebSocket fan-out (ADR 0003)
+  app/ml/               Artefact loader and inference; no scikit-learn at runtime
+frontend/    React dashboard — Dashboard and Live Drive pages
+ml/          Offline training pipeline, artefacts and evaluation reports
+cv/          Driver-monitoring service, separate process (ADR 0002)
+docs/        Architecture, model card and ADRs
 data/        Datasets and recordings — gitignored, reproducible
 ```
+
+Database tables: `drivers`, `vehicles`, `trips`, `telemetry`, `driving_events`,
+`risk_windows`, `driver_states`.
 
 ## Configuration
 
@@ -187,9 +321,16 @@ larger one with demo-only functionality.
 - **The driver-monitoring component is not a safety or medical device.** It
   estimates behavioural signals for research and demonstration purposes and
   makes no claim to detect real impairment.
-- **Missing signals are never imputed.** When the camera is absent the risk
-  engine renormalises over available inputs and marks the assessment as
-  degraded, rather than inventing a score.
+- **Missing signals are never imputed.** A risk assessment carries its own
+  provenance: whether a model artefact was loaded, whether the rule layer
+  gated the model's band, which rules matched, and what fraction of the
+  30-second window actually had samples. A fresh checkout with no `model.json`
+  still produces assessments — rule-only ones, labelled as such — rather than
+  a fabricated score.
+- **The camera signal is not yet fused into the risk score.** It is captured,
+  persisted and streamed, and that is all. Wiring it in without first deciding
+  how a missing camera renormalises the score would be exactly the kind of
+  demo-only functionality this section exists to prevent.
 
 ## Licence
 
