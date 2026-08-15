@@ -3,14 +3,54 @@ import { useParams } from 'react-router-dom';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { StatTile } from '@/components/ui/StatTile';
-import type { ConnectionState } from '@/lib/api/useHealth';
-import { useLiveTrip } from '@/lib/ws/useLiveTrip';
+import {
+  useLiveTrip,
+  type LiveConnectionState,
+  type LiveRisk,
+  type LiveTripState,
+} from '@/lib/ws/useLiveTrip';
 
-const CONNECTION_LABEL: Record<ConnectionState, { text: string; dot: string }> = {
-  checking: { text: 'Connecting', dot: 'bg-content-muted' },
+const CONNECTION_LABEL: Record<LiveConnectionState, { text: string; dot: string }> = {
+  connecting: { text: 'Connecting', dot: 'bg-content-muted' },
   connected: { text: 'Live', dot: 'bg-risk-low' },
+  reconnecting: { text: 'Reconnecting', dot: 'bg-risk-moderate' },
   unreachable: { text: 'Disconnected', dot: 'bg-risk-critical' },
 };
+
+const RISK_TONE: Record<LiveRisk['band'], BadgeTone> = {
+  CALM: 'low',
+  NORMAL: 'low',
+  AGGRESSIVE: 'high',
+  HIGH_RISK: 'critical',
+};
+
+/**
+ * What the numbers on screen are worth while the socket is down.
+ *
+ * They are not wrong — they are the most recent thing known about the drive —
+ * but they have stopped advancing, and a page that says "Live" over a frozen
+ * speed is lying by omission. The values stay; the banner says why.
+ */
+function StaleNotice({ state }: { state: LiveConnectionState }) {
+  if (state !== 'reconnecting' && state !== 'unreachable') {
+    return null;
+  }
+  const reconnecting = state === 'reconnecting';
+  return (
+    <div
+      role="status"
+      className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+        reconnecting
+          ? 'border-risk-moderate/40 bg-risk-moderate/10 text-content-secondary'
+          : 'border-risk-critical/40 bg-risk-critical/10 text-content-secondary'
+      }`}
+    >
+      {reconnecting
+        ? 'Connection lost — retrying. The values below are the last ones received and are no longer updating.'
+        : 'Still disconnected. Retries are continuing in the background; the values below are stale.'}
+    </div>
+  );
+}
 
 /**
  * Event rows come straight off the socket, so a malformed or partial payload
@@ -28,8 +68,9 @@ const EVENT_TONE: Record<string, BadgeTone> = {
 
 export function LiveDrive() {
   const { tripId } = useParams<{ tripId: string }>();
-  const { state, latestFrame, events } = useLiveTrip(tripId ?? '');
+  const { state, latestFrame, latestRisk, events }: LiveTripState = useLiveTrip(tripId ?? '');
   const label = CONNECTION_LABEL[state];
+  const stale = state === 'reconnecting' || state === 'unreachable';
 
   return (
     <div>
@@ -44,7 +85,29 @@ export function LiveDrive() {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <StaleNotice state={state} />
+
+      {latestRisk && (
+        <Panel className="mt-6 flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <Badge tone={RISK_TONE[latestRisk.band]}>{latestRisk.band}</Badge>
+            <span className="tabular text-2xl font-semibold text-content-primary">
+              {latestRisk.score.toFixed(1)}
+            </span>
+            <span className="text-sm text-content-muted">risk score</span>
+          </div>
+          <div className="text-xs text-content-muted">
+            {/* Coverage and provenance travel with every assessment precisely so
+                a low-coverage or rule-only window is not read as a confident
+                one. Showing the band without them would undo that. */}
+            {(latestRisk.coverage_ratio * 100).toFixed(0)}% window coverage ·{' '}
+            {latestRisk.provenance.toLowerCase().replace(/_/g, ' ')}
+            {latestRisk.gated && ' · gated'}
+          </div>
+        </Panel>
+      )}
+
+      <div className={`mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4 ${stale ? 'opacity-60' : ''}`}>
         <StatTile
           label="Speed"
           value={latestFrame ? latestFrame.speed_kph.toFixed(1) : '—'}

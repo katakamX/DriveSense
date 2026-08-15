@@ -32,6 +32,24 @@ trip end — takes the request's session as an argument instead, so the last
 risk rows and the trip's summary columns land in the same transaction as the
 trip's own status change. A trip cannot be marked completed with its risk
 summary missing.
+
+## The accumulator is memory, and memory does not survive a restart
+
+`_accumulators` holds the running fold for every live trip, and a restart wipes
+it. What it does *not* wipe is `risk_windows`, because every assessment reaches
+that table within five rows or five seconds of being computed. So a trip that
+spans a restart ends with an accumulator covering only the windows scored since
+the process came back — and `finalise_trip` would stamp that partial verdict
+into `trips.risk_score` as though it were the whole drive. Silently: a summary
+over the last two minutes of a forty-minute trip is a perfectly plausible
+number, and nothing about it says it is wrong.
+
+`finalise_trip` therefore checks the accumulator against the row count before
+trusting it, and folds the persisted rows instead when it comes up short. The
+comparison, rather than an unconditional rebuild, is deliberate: on the normal
+path memory holds full float precision while the table has rounded to
+`Numeric(5, 2)`, and there is no reason to publish the rounded answer when the
+exact one is right there. The DB is the fallback, not the default.
 """
 
 from __future__ import annotations
@@ -41,10 +59,16 @@ import time
 import uuid
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.risk.aggregate import EMPTY, TripRiskAccumulator, TripRiskSummary, finalise, fold
-from app.core.risk.schema import RiskAssessment
+from app.core.risk.schema import (
+    FeatureContribution,
+    Provenance,
+    RiskAssessment,
+    RiskBand,
+)
 from app.db.models import RiskWindow, Trip
 from app.db.session import SessionLocal
 
@@ -138,23 +162,86 @@ async def finalise_trip(
     to score, which leaves the columns null rather than claiming a score of
     zero. Trip state is released either way: this is the last thing that
     happens to a trip in this process.
+
+    Runs strictly after the tail flush, so by the time the accumulator is
+    reconciled every window this process holds is already a row and the two
+    are comparable.
     """
     await flush(trip_id, session=session)
     accumulator = _accumulators.pop(trip_id, None)
     _last_flush_at.pop(trip_id, None)
     _pending.pop(trip_id, None)
 
-    if accumulator is None or accumulator.window_count == 0:
-        return None
-
-    summary = finalise(accumulator)
     if session is not None:
-        await _apply_summary(session, trip_id, summary)
-    else:
-        async with _factory()() as owned:
-            await _apply_summary(owned, trip_id, summary)
-            await owned.commit()
+        return await _summarise_and_stamp(session, trip_id, accumulator)
+    async with _factory()() as owned:
+        summary = await _summarise_and_stamp(owned, trip_id, accumulator)
+        await owned.commit()
+        return summary
+
+
+async def _summarise_and_stamp(
+    session: AsyncSession, trip_id: uuid.UUID, accumulator: TripRiskAccumulator | None
+) -> TripRiskSummary | None:
+    reconciled = await _reconcile(session, trip_id, accumulator)
+    if reconciled.window_count == 0:
+        return None
+    summary = finalise(reconciled)
+    await _apply_summary(session, trip_id, summary)
     return summary
+
+
+async def _reconcile(
+    session: AsyncSession, trip_id: uuid.UUID, accumulator: TripRiskAccumulator | None
+) -> TripRiskAccumulator:
+    """The trip's true fold state: memory if it is complete, the table if not.
+
+    "Complete" means the accumulator has folded at least as many windows as the
+    table holds rows. It can legitimately hold *more* — `enqueue` folds before
+    the row is written, and a flush that failed leaves the fold ahead of the
+    table on purpose (see `enqueue`) — so the test is `>=`, not `==`.
+    """
+    persisted = await _persisted_window_count(session, trip_id)
+    held = accumulator.window_count if accumulator is not None else 0
+    if accumulator is not None and held >= persisted:
+        return accumulator
+
+    # Not a failure of this process, and usually not a failure at all: the
+    # ordinary cause is a restart part-way through the trip. Logged at warning
+    # because a summary rebuilt from rounded rows is not quite the summary the
+    # live path would have produced, and that is worth being able to see.
+    logger.warning(
+        "Trip %s accumulator holds %d window(s) against %d persisted; "
+        "rebuilding the summary from risk_windows",
+        trip_id,
+        held,
+        persisted,
+    )
+    return await _rebuild_accumulator(session, trip_id)
+
+
+async def _persisted_window_count(session: AsyncSession, trip_id: uuid.UUID) -> int:
+    result = await session.execute(
+        select(func.count()).select_from(RiskWindow).where(RiskWindow.trip_id == trip_id)
+    )
+    return int(result.scalar_one())
+
+
+async def _rebuild_accumulator(session: AsyncSession, trip_id: uuid.UUID) -> TripRiskAccumulator:
+    """Fold every persisted window for one trip, oldest first.
+
+    Order is not required for correctness — every field of the accumulator is a
+    sum, a count, a max or a min, which is what `test_risk_aggregate` asserts —
+    but folding in window order costs nothing and keeps the rebuilt state
+    identical to the one the live path would have built.
+    """
+    result = await session.execute(
+        select(RiskWindow).where(RiskWindow.trip_id == trip_id).order_by(RiskWindow.window_end)
+    )
+    accumulator = EMPTY
+    for row in result.scalars().all():
+        accumulator = fold(accumulator, _from_row(row))
+    return accumulator
 
 
 async def _apply_summary(
@@ -246,6 +333,48 @@ def _to_row(trip_id: uuid.UUID, assessment: RiskAssessment) -> RiskWindow:
         feature_version=assessment.feature_version,
         rubric_version=assessment.rubric_version,
         model_version=assessment.model_version,
+    )
+
+
+def _from_row(row: RiskWindow) -> RiskAssessment:
+    """Inverse of `_to_row`, to the precision the columns kept.
+
+    Not a perfect round trip and cannot be: `score` is `Numeric(5, 2)` and
+    `coverage_ratio` is `Numeric(4, 3)`, so a rebuilt assessment carries the
+    stored value, not the computed one. That is the whole cost of recovering a
+    summary from the table, and it is bounded by the column definitions.
+    """
+    contributions = tuple(
+        FeatureContribution(
+            feature=str(entry["feature"]),
+            value=float(entry["value"]),
+            contribution=float(entry["contribution"]),
+        )
+        for entry in (row.contributions or ())
+    )
+    return RiskAssessment(
+        risk_engine_version=row.risk_engine_version,
+        feature_version=row.feature_version,
+        rubric_version=row.rubric_version,
+        model_version=row.model_version,
+        window_start=row.window_start,
+        window_end=row.window_end,
+        sample_count=row.sample_count,
+        coverage_ratio=float(row.coverage_ratio),
+        score=float(row.score),
+        band=RiskBand(row.band),
+        confidence=float(row.confidence),
+        provenance=Provenance(row.provenance),
+        model_available=row.model_available,
+        gated=row.gated,
+        rule_band=RiskBand(row.rule_band),
+        matched_rules=tuple(row.matched_rules),
+        model_band=RiskBand(row.model_band) if row.model_band is not None else None,
+        model_score=float(row.model_score) if row.model_score is not None else None,
+        model_predicted_class=row.model_predicted_class,
+        probabilities=dict(row.probabilities) if row.probabilities is not None else None,
+        contributions=contributions,
+        contributions_remainder=float(row.contributions_remainder or 0.0),
     )
 
 
