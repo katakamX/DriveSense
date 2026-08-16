@@ -21,6 +21,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from app.api.v1 import (
+    auth,
     driver_monitor,
     drivers,
     health,
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
 
     v1 = APIRouter(prefix=settings.api_prefix)
     v1.include_router(health.router)
+    v1.include_router(auth.router)
     v1.include_router(drivers.router)
     v1.include_router(vehicles.router)
     v1.include_router(trips.router)
