@@ -1,14 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tests.conftest import register_staff
 
 
 @pytest.fixture(autouse=True)
-def _authenticated(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/auth/register",
-        json={"email": "vehicles-tests@example.com", "password": "correcthorsebattery"},
-    )
-    assert response.status_code == 201, response.text
+async def _authenticated(client: TestClient, db_session: AsyncSession) -> None:
+    await register_staff(client, db_session, "vehicles-tests@example.com")
 
 
 def _create_vehicle(client: TestClient, **overrides: object) -> dict:

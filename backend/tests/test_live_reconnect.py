@@ -31,6 +31,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
@@ -38,6 +39,7 @@ from app.api.v1 import live as live_route
 from app.core.live import broadcaster, publish
 from app.core.risk import sink as risk_sink
 from app.core.windowing import buffer
+from tests.conftest import register_staff
 
 TRIP_START = "2026-08-11T09:00:00Z"
 
@@ -46,14 +48,10 @@ TRIP_START = "2026-08-11T09:00:00Z"
 RELEASE_TIMEOUT_S = 3.0
 
 
-def _make_trip(client: TestClient, suffix: str) -> str:
-    # Driver/vehicle creation requires a session; the live socket and telemetry
-    # ingest exercised elsewhere in this file do not.
-    auth = client.post(
-        "/api/v1/auth/register",
-        json={"email": f"live-{suffix}@example.com", "password": "correcthorsebattery"},
-    )
-    assert auth.status_code == 201, auth.text
+async def _make_trip(client: TestClient, db_session: AsyncSession, suffix: str) -> str:
+    # Driver/vehicle creation requires a staff session; the live socket and
+    # telemetry ingest exercised elsewhere in this file do not.
+    await register_staff(client, db_session, f"live-{suffix}@example.com")
     driver = client.post(
         "/api/v1/drivers",
         json={
@@ -146,13 +144,15 @@ def _post_frames(client: TestClient, trip_id: str, frames: list[dict[str, object
 # --- the snapshot -------------------------------------------------------------
 
 
-def test_an_untouched_trip_snapshots_empty_rather_than_absent(client: TestClient) -> None:
+async def test_an_untouched_trip_snapshots_empty_rather_than_absent(
+    client: TestClient, db_session: AsyncSession
+) -> None:
     """A restart leaves the server with nothing, and it must say so in the schema's shape.
 
     The client branches on three nullable facts; it must never have to branch on
     whether a snapshot arrived at all.
     """
-    trip_id = _make_trip(client, "SNAP02")
+    trip_id = await _make_trip(client, db_session, "SNAP02")
 
     with live_socket(client, trip_id) as (_, snapshot):
         assert set(snapshot) == {"telemetry", "risk", "events"}
@@ -161,8 +161,10 @@ def test_an_untouched_trip_snapshots_empty_rather_than_absent(client: TestClient
         assert snapshot["events"] == []
 
 
-def test_the_snapshot_carries_the_newest_buffered_frame(client: TestClient) -> None:
-    trip_id = _make_trip(client, "SNAP03")
+async def test_the_snapshot_carries_the_newest_buffered_frame(
+    client: TestClient, db_session: AsyncSession
+) -> None:
+    trip_id = await _make_trip(client, db_session, "SNAP03")
     _post_frames(
         client,
         trip_id,
@@ -202,13 +204,15 @@ def test_the_snapshot_carries_the_newest_buffered_frame(client: TestClient) -> N
         buffer.discard_trip(uuid.UUID(trip_id))
 
 
-def test_the_snapshot_replays_events_the_client_missed(client: TestClient) -> None:
+async def test_the_snapshot_replays_events_the_client_missed(
+    client: TestClient, db_session: AsyncSession
+) -> None:
     """Events are written before they are published, so the table is not a guess.
 
     This is the one part of a reconnect that genuinely recovers lost data rather
     than merely resuming from what the client already had.
     """
-    trip_id = _make_trip(client, "SNAP04")
+    trip_id = await _make_trip(client, db_session, "SNAP04")
     # A hard stop from 60 km/h, finished inside the batch so the detector emits
     # it here rather than holding it open for a later one.
     _post_frames(
@@ -255,9 +259,11 @@ def test_a_missing_trip_is_refused_before_the_socket_opens(client: TestClient) -
 # --- the relay ----------------------------------------------------------------
 
 
-def test_published_messages_still_reach_the_socket(client: TestClient) -> None:
+async def test_published_messages_still_reach_the_socket(
+    client: TestClient, db_session: AsyncSession
+) -> None:
     """The three-task rewrite must not have cost the endpoint its actual job."""
-    trip_id = _make_trip(client, "RELAY1")
+    trip_id = await _make_trip(client, db_session, "RELAY1")
 
     with live_socket(client, trip_id) as (socket, _):
         publish(uuid.UUID(trip_id), {"type": "risk", "data": {"score": 42.0}})
@@ -267,12 +273,12 @@ def test_published_messages_still_reach_the_socket(client: TestClient) -> None:
     assert message["data"]["score"] == 42.0
 
 
-def test_the_heartbeat_speaks_on_an_idle_trip(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+async def test_the_heartbeat_speaks_on_an_idle_trip(
+    client: TestClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Nothing is being published; the socket must still prove it is alive."""
     monkeypatch.setattr(live_route, "PING_INTERVAL_S", 0.05)
-    trip_id = _make_trip(client, "PING01")
+    trip_id = await _make_trip(client, db_session, "PING01")
 
     with live_socket(client, trip_id) as (socket, _):
         message = socket.receive_json()
@@ -284,14 +290,16 @@ def test_the_heartbeat_speaks_on_an_idle_trip(
 # --- letting go ---------------------------------------------------------------
 
 
-def test_a_disconnect_releases_the_subscriber_queue(client: TestClient) -> None:
+async def test_a_disconnect_releases_the_subscriber_queue(
+    client: TestClient, db_session: AsyncSession
+) -> None:
     """The leak. Without a reader task, this count stays at 1 for the process's life.
 
     Idle on purpose: the old relay did eventually notice a disconnect when a
     send failed, so a test that published first could have passed against the
     very bug it exists to catch.
     """
-    trip_id = _make_trip(client, "LEAK01")
+    trip_id = await _make_trip(client, db_session, "LEAK01")
     key = uuid.UUID(trip_id)
 
     with client.websocket_connect(f"/api/v1/trips/{trip_id}/live") as socket:
@@ -301,9 +309,11 @@ def test_a_disconnect_releases_the_subscriber_queue(client: TestClient) -> None:
         assert wait_for_subscribers(key, 0) == 0
 
 
-def test_repeated_connect_and_drop_cycles_leave_nothing_behind(client: TestClient) -> None:
+async def test_repeated_connect_and_drop_cycles_leave_nothing_behind(
+    client: TestClient, db_session: AsyncSession
+) -> None:
     """A reconnecting client opens one socket per attempt, and the backoff makes several."""
-    trip_id = _make_trip(client, "LEAK02")
+    trip_id = await _make_trip(client, db_session, "LEAK02")
     key = uuid.UUID(trip_id)
 
     for _ in range(4):
@@ -313,8 +323,10 @@ def test_repeated_connect_and_drop_cycles_leave_nothing_behind(client: TestClien
     assert broadcaster.subscriber_count(key) == 0
 
 
-def test_two_clients_on_one_trip_are_tracked_and_released_separately(client: TestClient) -> None:
-    trip_id = _make_trip(client, "LEAK03")
+async def test_two_clients_on_one_trip_are_tracked_and_released_separately(
+    client: TestClient, db_session: AsyncSession
+) -> None:
+    trip_id = await _make_trip(client, db_session, "LEAK03")
     key = uuid.UUID(trip_id)
 
     with live_socket(client, trip_id):

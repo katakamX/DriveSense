@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1 import trips as trips_api
 from app.core.features import FeatureSample
@@ -30,6 +31,7 @@ from app.core.risk import sink as risk_sink
 from app.core.risk.schema import Provenance, RiskBand
 from app.core.windowing import buffer, ticker
 from app.ml import load_model, unload_model
+from tests.conftest import register_staff
 
 # The risk engine requires an artefact whose classes *are* the four risk bands
 # (see `app.core.risk.score.expected_severity`), so the tick's model path is
@@ -448,13 +450,9 @@ async def test_stop_all_tears_down_every_trip(monkeypatch: pytest.MonkeyPatch) -
 # --- End to end, through the API, at the real 1 Hz ----------------------------
 
 
-def _live_trip(client: TestClient, suffix: str) -> str:
-    # Driver/vehicle creation requires a session; telemetry ingest below does not.
-    auth = client.post(
-        "/api/v1/auth/register",
-        json={"email": f"windowing-{suffix}@example.com", "password": "correcthorsebattery"},
-    )
-    assert auth.status_code == 201, auth.text
+async def _live_trip(client: TestClient, db_session: AsyncSession, suffix: str) -> str:
+    # Driver/vehicle creation requires a staff session; telemetry ingest below does not.
+    await register_staff(client, db_session, f"windowing-{suffix}@example.com")
     driver = client.post(
         "/api/v1/drivers",
         json={
@@ -506,18 +504,20 @@ def _post_frames(client: TestClient, trip_id: str, count: int, start_index: int 
     assert response.status_code == 201, response.text
 
 
-def test_ingesting_a_batch_fills_the_trips_buffer(client: TestClient) -> None:
-    trip_id = _live_trip(client, "100")
+async def test_ingesting_a_batch_fills_the_trips_buffer(
+    client: TestClient, db_session: AsyncSession
+) -> None:
+    trip_id = await _live_trip(client, db_session, "100")
 
     _post_frames(client, trip_id, 40)
 
     assert buffer.buffered_count(uuid.UUID(trip_id)) == 40
 
 
-def test_the_buffer_carries_extended_fields_the_telemetry_table_has_no_column_for(
-    client: TestClient,
+async def test_the_buffer_carries_extended_fields_the_telemetry_table_has_no_column_for(
+    client: TestClient, db_session: AsyncSession
 ) -> None:
-    trip_id = _live_trip(client, "110")
+    trip_id = await _live_trip(client, db_session, "110")
 
     _post_frames(client, trip_id, 10)
 
@@ -526,7 +526,9 @@ def test_the_buffer_carries_extended_fields_the_telemetry_table_has_no_column_fo
     assert all(sample.heading_deg is not None for sample in window)
 
 
-def test_a_live_trip_ticks_at_1hz_and_produces_model_output(client: TestClient) -> None:
+async def test_a_live_trip_ticks_at_1hz_and_produces_model_output(
+    client: TestClient, db_session: AsyncSession
+) -> None:
     """The end-to-end claim: frames in over HTTP, model output out, once a second.
 
     Deliberately runs at the real `TICK_INTERVAL_S`. Two ticks are observed —
@@ -534,7 +536,7 @@ def test_a_live_trip_ticks_at_1hz_and_produces_model_output(client: TestClient) 
     *cadence*, not merely that something fired once.
     """
     load_model(FIXTURE_MODEL)
-    trip_id = _live_trip(client, "200")
+    trip_id = await _live_trip(client, db_session, "200")
     _post_frames(client, trip_id, 300)  # 30 s of 10 Hz frames
 
     time.sleep(ticker.TICK_INTERVAL_S * 1.5)
@@ -557,8 +559,10 @@ def test_a_live_trip_ticks_at_1hz_and_produces_model_output(client: TestClient) 
     assert first.risk.contributions, "an explained band with no contributions"
 
 
-def test_ending_a_trip_stops_its_tick_and_releases_its_buffer(client: TestClient) -> None:
-    trip_id = _live_trip(client, "300")
+async def test_ending_a_trip_stops_its_tick_and_releases_its_buffer(
+    client: TestClient, db_session: AsyncSession
+) -> None:
+    trip_id = await _live_trip(client, db_session, "300")
     _post_frames(client, trip_id, 50)
     assert ticker.running_trip_count() == 1
 
@@ -572,8 +576,8 @@ def test_ending_a_trip_stops_its_tick_and_releases_its_buffer(client: TestClient
     assert buffer.buffered_count(uuid.UUID(trip_id)) == 0
 
 
-def test_deleting_a_trip_releases_its_windowing_state(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+async def test_deleting_a_trip_releases_its_windowing_state(
+    client: TestClient, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Delete tears down the tick and buffer, asserted through a spy.
 
@@ -592,7 +596,7 @@ def test_deleting_a_trip_releases_its_windowing_state(
         await real_stop_trip(trip_id)
 
     monkeypatch.setattr(trips_api, "stop_trip", spy)
-    trip_id = _live_trip(client, "400")
+    trip_id = await _live_trip(client, db_session, "400")
 
     response = client.delete(f"/api/v1/trips/{trip_id}")
 

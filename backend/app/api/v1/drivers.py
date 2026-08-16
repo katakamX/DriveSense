@@ -7,12 +7,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import get_current_user
+from app.core.deps import require_staff
 from app.db.models import Driver
 from app.db.session import get_db
 from app.schemas.driver import DriverCreate, DriverRead, DriverUpdate
 
-router = APIRouter(prefix="/drivers", tags=["drivers"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/drivers", tags=["drivers"], dependencies=[Depends(require_staff)])
 
 
 @router.post("", response_model=DriverRead, status_code=status.HTTP_201_CREATED)

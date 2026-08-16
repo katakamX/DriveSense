@@ -1,10 +1,12 @@
-"""Auth step 6: which routes the login-required gate covers, and which it doesn't.
+"""Auth step 6: which routes the role gate covers, and which it doesn't.
 
-Drivers and vehicles are admin/creation/review endpoints and now require a
-session (`app.core.deps.get_current_user`, applied at the router level in
-`app.api.v1.drivers` and `app.api.v1.vehicles`). Everything the simulator, the
-CV process, and the browser-camera monitor talk to must keep working without
-one: telemetry ingest, driver-state ingest, and the driver-monitor socket.
+Drivers and vehicles are admin/creation endpoints and now require a *staff*
+session (`app.core.deps.require_staff`: logged in AND role in {employee,
+admin}, applied at the router level in `app.api.v1.drivers` and
+`app.api.v1.vehicles`). A plain logged-in "user" is refused just like an
+anonymous caller. Everything the simulator, the CV process, and the
+browser-camera monitor talk to must keep working without any of that:
+telemetry ingest, driver-state ingest, and the driver-monitor socket.
 """
 
 from __future__ import annotations
@@ -16,21 +18,16 @@ import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1 import driver_monitor as driver_monitor_route
 from app.core.monitor import MonitorResult
+from tests.conftest import register_staff
 
 
-def _register(client: TestClient, email: str) -> None:
-    response = client.post(
-        "/api/v1/auth/register", json={"email": email, "password": "correcthorsebattery"}
-    )
-    assert response.status_code == 201, response.text
-
-
-def _create_trip(client: TestClient, suffix: str) -> str:
-    """Trip setup goes through the (now-protected) driver/vehicle routes."""
-    _register(client, f"route-protection-{suffix}@example.com")
+async def _create_trip(client: TestClient, db_session: AsyncSession, suffix: str) -> str:
+    """Trip setup goes through the (now role-gated) driver/vehicle routes."""
+    await register_staff(client, db_session, f"route-protection-{suffix}@example.com")
     driver = client.post(
         "/api/v1/drivers",
         json={
@@ -96,11 +93,50 @@ def test_create_vehicle_requires_authentication(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+# --- logged in, but not staff: also refused --------------------------------
+
+
+def test_create_driver_refuses_plain_user_role(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "plain-user@example.com", "password": "correcthorsebattery"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["role"] == "user"
+
+    response = client.post(
+        "/api/v1/drivers",
+        json={"name": "Plain User", "license_number": "RP-PLAIN", "date_of_birth": "1990-01-01"},
+    )
+    assert response.status_code == 403
+
+
+def test_create_vehicle_refuses_plain_user_role(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "plain-user-2@example.com", "password": "correcthorsebattery"},
+    )
+
+    response = client.post(
+        "/api/v1/vehicles",
+        json={
+            "make": "Test",
+            "model": "Rig",
+            "year": 2021,
+            "vin": "RPPLAINVIN0000001",
+            "license_plate": "RP-PLAIN",
+        },
+    )
+    assert response.status_code == 403
+
+
 # --- left alone: simulator / CV process / browser-camera monitor ----------
 
 
-def test_telemetry_batch_ingest_still_works_without_authentication(client: TestClient) -> None:
-    trip_id = _create_trip(client, "TEL01")
+async def test_telemetry_batch_ingest_still_works_without_authentication(
+    client: TestClient, db_session: AsyncSession
+) -> None:
+    trip_id = await _create_trip(client, db_session, "TEL01")
     unauth_client = TestClient(client.app, raise_server_exceptions=False)
 
     response = unauth_client.post(
@@ -120,8 +156,10 @@ def test_telemetry_batch_ingest_still_works_without_authentication(client: TestC
     assert response.status_code == 201, response.text
 
 
-def test_driver_state_ingest_still_works_without_authentication(client: TestClient) -> None:
-    trip_id = _create_trip(client, "TEL02")
+async def test_driver_state_ingest_still_works_without_authentication(
+    client: TestClient, db_session: AsyncSession
+) -> None:
+    trip_id = await _create_trip(client, db_session, "TEL02")
     unauth_client = TestClient(client.app, raise_server_exceptions=False)
 
     response = unauth_client.post(
