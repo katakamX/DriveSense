@@ -25,6 +25,13 @@ dependencies = [
     # docstring in `app/core/monitor/__init__.py` for the ADR 0002 tension.
     "mediapipe>=1.0",
     "opencv-python-headless>=4.10",
+    # Password hashing (app.core.security). Direct bcrypt, not passlib -
+    # passlib is unmaintained and its bcrypt backend has version-detection
+    # issues with recent bcrypt releases.
+    "bcrypt>=4.2",
+    # Required for pydantic's EmailStr (app.schemas.auth) - not pulled in by
+    # the plain "pydantic" dependency above.
+    "email-validator>=2.2",
 ]
 
 [project.optional-dependencies]
