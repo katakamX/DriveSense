@@ -112,4 +112,21 @@ def test_create_driver_duplicate_license_number_conflicts(client: TestClient) ->
         "/api/v1/drivers",
         json={"name": "Someone Else", "license_number": "LN-700", "date_of_birth": "1985-05-05"},
     )
-    assert response.status_code >= 400
+    assert response.status_code == 409
+    assert "license_number" in response.json()["detail"]
+
+
+def test_create_driver_duplicate_driver_code_conflicts(client: TestClient) -> None:
+    _create_driver(client, license_number="LN-701", driver_code="DC-01")
+
+    response = client.post(
+        "/api/v1/drivers",
+        json={
+            "name": "Someone Else",
+            "license_number": "LN-702",
+            "date_of_birth": "1985-05-05",
+            "driver_code": "DC-01",
+        },
+    )
+    assert response.status_code == 409
+    assert "driver_code" in response.json()["detail"]

@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import require_staff
@@ -13,12 +14,31 @@ from app.schemas.vehicle import VehicleCreate, VehicleRead, VehicleUpdate
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"], dependencies=[Depends(require_staff)])
 
+# Maps the unique-constraint name Postgres reports in IntegrityError.orig to
+# the field name it protects, so a constraint violation can be turned into a
+# 409 that names the actual offending field instead of a bare 500.
+_UNIQUE_CONSTRAINT_FIELDS = {
+    "uq_vehicles_vin": "vin",
+    "uq_vehicles_license_plate": "license_plate",
+}
+
+
+def _conflict_field(error: IntegrityError) -> str | None:
+    diag = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    return _UNIQUE_CONSTRAINT_FIELDS.get(diag)
+
 
 @router.post("", response_model=VehicleRead, status_code=status.HTTP_201_CREATED)
 async def create_vehicle(payload: VehicleCreate, db: AsyncSession = Depends(get_db)) -> Vehicle:
     vehicle = Vehicle(**payload.model_dump())
     db.add(vehicle)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        field = _conflict_field(exc)
+        detail = f"{field} already exists" if field else "Vehicle conflicts with an existing record"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
     await db.refresh(vehicle)
     return vehicle
 

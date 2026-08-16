@@ -21,9 +21,7 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     """Upgrade schema."""
     op.add_column("users", sa.Column("otp_code_hash", sa.String(length=64), nullable=True))
-    op.add_column(
-        "users", sa.Column("otp_expires_at", sa.DateTime(timezone=True), nullable=True)
-    )
+    op.add_column("users", sa.Column("otp_expires_at", sa.DateTime(timezone=True), nullable=True))
 
 
 def downgrade() -> None:

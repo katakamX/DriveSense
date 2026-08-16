@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,12 +15,31 @@ from app.schemas.driver import DriverCreate, DriverRead, DriverUpdate
 
 router = APIRouter(prefix="/drivers", tags=["drivers"], dependencies=[Depends(require_staff)])
 
+# Maps the unique-constraint name Postgres reports in IntegrityError.orig to
+# the field name it protects, so a constraint violation can be turned into a
+# 409 that names the actual offending field instead of a bare 500.
+_UNIQUE_CONSTRAINT_FIELDS = {
+    "uq_drivers_driver_code": "driver_code",
+    "uq_drivers_license_number": "license_number",
+}
+
+
+def _conflict_field(error: IntegrityError) -> str | None:
+    diag = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    return _UNIQUE_CONSTRAINT_FIELDS.get(diag)
+
 
 @router.post("", response_model=DriverRead, status_code=status.HTTP_201_CREATED)
 async def create_driver(payload: DriverCreate, db: AsyncSession = Depends(get_db)) -> Driver:
     driver = Driver(**payload.model_dump())
     db.add(driver)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        field = _conflict_field(exc)
+        detail = f"{field} already exists" if field else "Driver conflicts with an existing record"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
     # Two refreshes, not one `attribute_names=["current_vehicle"]` call: that
     # form loads only the named relationship and leaves server-generated
     # columns (`updated_at`'s `onupdate=func.now()`) at their stale

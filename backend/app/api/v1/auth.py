@@ -73,9 +73,7 @@ async def login(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(
-    request: Request, response: Response, db: AsyncSession = Depends(get_db)
-) -> None:
+async def logout(request: Request, response: Response, db: AsyncSession = Depends(get_db)) -> None:
     settings = get_settings()
     token = request.cookies.get(settings.session_cookie_name)
     response.delete_cookie(settings.session_cookie_name, path="/")
