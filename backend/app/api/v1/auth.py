@@ -116,9 +116,7 @@ async def google_login(request: Request) -> Response:
 
 
 @router.get("/google/callback")
-async def google_callback(
-    request: Request, db: AsyncSession = Depends(get_db)
-) -> Response:
+async def google_callback(request: Request, db: AsyncSession = Depends(get_db)) -> Response:
     settings = get_settings()
     try:
         token = await oauth.google.authorize_access_token(request)
