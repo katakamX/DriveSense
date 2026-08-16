@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Dashboard } from '@/pages/Dashboard';
 import { DriverMonitor } from '@/pages/DriverMonitor';
 import { LiveDrive } from '@/pages/LiveDrive';
+import { Login } from '@/pages/Login';
 
 export function App() {
   return (
@@ -11,6 +12,7 @@ export function App() {
       <AppShell>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/login" element={<Login />} />
           <Route path="/trips/:tripId/live" element={<LiveDrive />} />
           <Route path="/driver-monitor" element={<DriverMonitor />} />
         </Routes>
