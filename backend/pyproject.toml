@@ -67,6 +67,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 # not the eager-call bug B008 exists to catch. Scoped to the router files so
 # B008 keeps catching genuine mistakes elsewhere.
 "app/api/**" = ["B008"]
+# Same FastAPI DI pattern, this dependency just lives outside app/api since
+# other dependencies (get_db) do too.
+"app/core/deps.py" = ["B008"]
 
 [tool.mypy]
 python_version = "3.12"

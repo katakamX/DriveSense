@@ -28,6 +28,15 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://drivesense:drivesense@localhost:5432/drivesense"
 
+    # Auth (M-Auth-1). Sessions are DB-backed, cookie-carried opaque tokens,
+    # not JWT - simplest correct choice for one frontend talking to one
+    # backend, with instant server-side revocation (logout deletes the row).
+    session_cookie_name: str = "ds_session"
+    session_ttl_hours: int = 24 * 14
+    # `Secure` requires HTTPS; the Vite dev server is plain HTTP, so this
+    # follows `environment` rather than being hardcoded True.
+    session_cookie_secure: bool = False
+
     # Fallback speed limit for trips that don't set their own — a configured
     # placeholder, not a claim about any real road's actual limit.
     default_speed_limit_kph: float = 100.0
