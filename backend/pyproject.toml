@@ -91,3 +91,8 @@ strict = true
 [[tool.mypy.overrides]]
 module = ["cv2.*", "mediapipe.*"]
 ignore_missing_imports = true
+
+# Authlib ships no stubs either (types-Authlib is third-party and stale).
+[[tool.mypy.overrides]]
+module = ["authlib.*"]
+ignore_missing_imports = true

@@ -1,6 +1,8 @@
 """Registration, login, and logout for the staff/admin/employee `User`."""
 
+from authlib.integrations.base_client.errors import OAuthError
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,7 +109,48 @@ async def verify_otp_endpoint(
 @router.get("/google/login")
 async def google_login(request: Request) -> Response:
     settings = get_settings()
-    return await oauth.google.authorize_redirect(request, settings.google_redirect_uri)
+    redirect: Response = await oauth.google.authorize_redirect(
+        request, settings.google_redirect_uri
+    )
+    return redirect
+
+
+@router.get("/google/callback")
+async def google_callback(
+    request: Request, db: AsyncSession = Depends(get_db)
+) -> Response:
+    settings = get_settings()
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except OAuthError as exc:
+        # Consent denied, expired code, mismatched CSRF state, or Google's
+        # token endpoint erroring - none of these are our bug, so they fail
+        # cleanly as a 400 rather than an unhandled 500.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"Google sign-in failed: {exc.error}"
+        ) from exc
+
+    userinfo = token.get("userinfo")
+    if userinfo is None or not userinfo.get("email"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Google sign-in failed: no profile returned"
+        )
+    email = userinfo["email"]
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if user is None:
+        # Google already verified this address, so a Google-created account
+        # starts email_verified - unlike password registration's OTP step.
+        user = User(email=email, role="user", email_verified=True)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    session_token = await create_session(db, user)
+    response = RedirectResponse(settings.oauth_success_redirect)
+    _set_session_cookie(response, session_token)
+    return response
 
 
 @router.post("/resend-otp", status_code=status.HTTP_204_NO_CONTENT)
