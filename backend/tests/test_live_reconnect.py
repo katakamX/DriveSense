@@ -47,6 +47,13 @@ RELEASE_TIMEOUT_S = 3.0
 
 
 def _make_trip(client: TestClient, suffix: str) -> str:
+    # Driver/vehicle creation requires a session; the live socket and telemetry
+    # ingest exercised elsewhere in this file do not.
+    auth = client.post(
+        "/api/v1/auth/register",
+        json={"email": f"live-{suffix}@example.com", "password": "correcthorsebattery"},
+    )
+    assert auth.status_code == 201, auth.text
     driver = client.post(
         "/api/v1/drivers",
         json={

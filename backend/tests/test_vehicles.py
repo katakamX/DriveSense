@@ -1,4 +1,14 @@
+import pytest
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _authenticated(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "vehicles-tests@example.com", "password": "correcthorsebattery"},
+    )
+    assert response.status_code == 201, response.text
 
 
 def _create_vehicle(client: TestClient, **overrides: object) -> dict:

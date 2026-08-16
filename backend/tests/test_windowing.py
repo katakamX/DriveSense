@@ -449,6 +449,12 @@ async def test_stop_all_tears_down_every_trip(monkeypatch: pytest.MonkeyPatch) -
 
 
 def _live_trip(client: TestClient, suffix: str) -> str:
+    # Driver/vehicle creation requires a session; telemetry ingest below does not.
+    auth = client.post(
+        "/api/v1/auth/register",
+        json={"email": f"windowing-{suffix}@example.com", "password": "correcthorsebattery"},
+    )
+    assert auth.status_code == 201, auth.text
     driver = client.post(
         "/api/v1/drivers",
         json={
