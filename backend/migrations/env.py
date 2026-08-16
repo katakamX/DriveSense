@@ -10,6 +10,7 @@ from app.db.models import (  # noqa: F401  (registers tables on Base.metadata)
     DrivingEvent,
     Telemetry,
     Trip,
+    User,
     Vehicle,
 )
 
