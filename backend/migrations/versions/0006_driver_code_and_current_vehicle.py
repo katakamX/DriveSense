@@ -22,9 +22,7 @@ def upgrade() -> None:
     """Upgrade schema."""
     op.add_column("drivers", sa.Column("driver_code", sa.String(length=64), nullable=True))
     op.add_column("drivers", sa.Column("current_vehicle_id", sa.Uuid(), nullable=True))
-    op.create_unique_constraint(
-        op.f("uq_drivers_driver_code"), "drivers", ["driver_code"]
-    )
+    op.create_unique_constraint(op.f("uq_drivers_driver_code"), "drivers", ["driver_code"])
     op.create_foreign_key(
         op.f("fk_drivers_current_vehicle_id_vehicles"),
         "drivers",
