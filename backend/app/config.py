@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # follows `environment` rather than being hardcoded True.
     session_cookie_secure: bool = False
 
+    # Mailgun (app.core.mailgun), for OTP email on registration. Empty
+    # defaults so a fresh checkout without `.env` still boots - sending is
+    # skipped (with a log warning) rather than failing registration.
+    mailgun_api_key: str = ""
+    mailgun_domain: str = ""
+
     # Fallback speed limit for trips that don't set their own — a configured
     # placeholder, not a claim about any real road's actual limit.
     default_speed_limit_kph: float = 100.0

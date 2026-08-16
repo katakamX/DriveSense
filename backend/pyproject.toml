@@ -32,6 +32,9 @@ dependencies = [
     # Required for pydantic's EmailStr (app.schemas.auth) - not pulled in by
     # the plain "pydantic" dependency above.
     "email-validator>=2.2",
+    # Mailgun API calls for OTP email (app.core.mailgun). Already a transitive
+    # dev/test dependency via the TestClient; needed at runtime too now.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]

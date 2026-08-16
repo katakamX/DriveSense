@@ -16,6 +16,15 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class VerifyOtpRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6)
+
+
+class ResendOtpRequest(BaseModel):
+    email: EmailStr
+
+
 class UserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
