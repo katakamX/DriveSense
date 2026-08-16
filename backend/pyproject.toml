@@ -35,6 +35,14 @@ dependencies = [
     # Mailgun API calls for OTP email (app.core.mailgun). Already a transitive
     # dev/test dependency via the TestClient; needed at runtime too now.
     "httpx>=0.27",
+    # Google OAuth login (M-Auth-2, app.core.oauth). Handles the
+    # authorization-code exchange and CSRF state check rather than a
+    # hand-rolled implementation.
+    "authlib>=1.3",
+    # SessionMiddleware, used only to hold Authlib's short-lived OAuth CSRF
+    # state between the /google/login redirect and the /google/callback -
+    # unrelated to the app's own DB-backed session cookie.
+    "itsdangerous>=2.2",
 ]
 
 [project.optional-dependencies]

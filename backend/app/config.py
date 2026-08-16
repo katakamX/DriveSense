@@ -43,6 +43,21 @@ class Settings(BaseSettings):
     mailgun_api_key: str = ""
     mailgun_domain: str = ""
 
+    # Google OAuth (M-Auth-2, app.core.oauth). Empty defaults so a fresh
+    # checkout without `.env` still boots - the /google/* routes just fail
+    # until real credentials are configured, same posture as Mailgun above.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Must exactly match a redirect URI registered in Google Cloud Console.
+    google_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
+    # Signs the short-lived (state-only) session cookie Authlib uses to carry
+    # its CSRF `state` value from /google/login to /google/callback. Distinct
+    # from `session_cookie_name` above: that one is the app's own long-lived
+    # login session, this one never outlives a single OAuth round trip.
+    oauth_state_secret_key: str = "dev-oauth-state-secret-change-in-production"
+    # Frontend route to land on once the callback has set the login cookie.
+    oauth_success_redirect: str = "http://localhost:5173/"
+
     # Fallback speed limit for trips that don't set their own — a configured
     # placeholder, not a claim about any real road's actual limit.
     default_speed_limit_kph: float = 100.0

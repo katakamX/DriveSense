@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 if sys.platform == "win32":
     # psycopg's async driver requires a selector event loop; Windows defaults
@@ -82,6 +83,17 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    # Carries Authlib's OAuth `state` between /google/login and
+    # /google/callback (app.core.oauth). A separate, short-lived cookie from
+    # the app's own login session - see `oauth_state_secret_key`.
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.oauth_state_secret_key,
+        session_cookie="ds_oauth_state",
+        max_age=600,
+        same_site="lax",
+        https_only=settings.session_cookie_secure,
     )
 
     v1 = APIRouter(prefix=settings.api_prefix)
