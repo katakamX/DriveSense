@@ -4,20 +4,21 @@
 driver-camera signals to detect driving events, classify driving behaviour, and
 produce an explainable real-time driver-risk score.
 
-> **Status: Milestones 1–10 of 15 complete; Milestone 11 (real-time
-> hardening) in progress.**
+> **Status: Milestones 1–11 of 15 complete.** Auth (Google OAuth + email/
+> password login, sessions, role-gated routes) has also shipped, alongside the
+> milestone track.
 > The end-to-end path works: the simulator produces telemetry, the backend
 > ingests it at 10 Hz into an in-process ring buffer, detects driving events,
 > extracts features, runs a trained classifier and a rule-gated risk engine on
 > a 1 Hz tick, and pushes the result to a React dashboard over a WebSocket. A
 > separate CV process estimates drowsiness from a real webcam and posts driver
-> state back at 1 Hz.
+> state back at 1 Hz. The backend now survives a restart without the browser
+> needing a reload (M11).
 >
-> What is **not** done: the backend does not yet survive a restart without the
-> browser needing a reload (that is M11), six of the eight dashboard pages do
-> not exist (M12), there is no OBD2 integration (M13), and **the trained model
-> is not fit for production use** — see [Model status](#model-status) below for
-> the number that says so. Nothing here claims functionality it does not have.
+> What is **not** done: six of the eight dashboard pages do not exist (M12),
+> there is no OBD2 integration (M13), and **the trained model is not fit for
+> production use** — see [Model status](#model-status) below for the number
+> that says so. Nothing here claims functionality it does not have.
 
 ## What this is
 
@@ -55,6 +56,7 @@ real trade-offs are recorded as ADRs in [docs/adr/](docs/adr/):
 | --- | --- |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, React Router, Lucide |
 | Backend | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0, Alembic |
+| Auth | Session cookies (DB-backed opaque tokens) · bcrypt password hashing · Authlib (Google OAuth) |
 | Database | PostgreSQL 16 |
 | Real-time | WebSockets (in-process fan-out — see ADR 0003) |
 | ML (offline) | pandas, PyArrow, scikit-learn — logistic regression and decision tree |
@@ -91,10 +93,11 @@ docker compose exec backend alembic upgrade head
 | Backend API | http://localhost:8000/api/v1 |
 | API docs | http://localhost:8000/docs |
 
-Two pages exist so far: the Dashboard at `/`, and Live Drive at
-`/trips/:tripId/live` — which is the one that renders real live data off the
-WebSocket. Create a driver, a vehicle and a trip through the API (or `/docs`),
-point the simulator at that trip, then open its Live Drive URL.
+Pages so far: `/login` (email/password or Google), the Dashboard at `/`, Live
+Drive at `/trips/:tripId/live` — the one that renders real live data off the
+WebSocket — and `/driver-monitor`. Create a driver, a vehicle and a trip
+through the API (or `/docs`), point the simulator at that trip, then open its
+Live Drive URL.
 
 ### Vehicle simulator
 
@@ -225,6 +228,14 @@ docs at `/docs`.
 | `POST` | `/trips/{trip_id}/telemetry/batch` | Batched telemetry ingest. Feeds the ring buffer, event detection and the inference tick. |
 | `POST` | `/ingest/driver-state` | Driver state from the CV process. `trip_id` travels in the payload, not the path — see ADR 0002. |
 | `WS` | `/trips/{trip_id}/live` | Live stream. Envelope is `{ type, data }` with `type` one of `telemetry`, `event`, `risk`, `driver_state`. Closes `4404` for an unknown trip. |
+| `POST` | `/auth/register`, `/auth/login`, `/auth/logout` | Email/password auth. Sessions are DB-backed opaque cookie tokens, not JWT. |
+| `POST` | `/auth/verify-otp`, `/auth/resend-otp` | Email OTP verification for password accounts. |
+| `GET` | `/auth/me` | Current session's user. |
+| `GET` | `/auth/google/login`, `/auth/google/callback` | Google OAuth sign-in (Authlib). Finds-or-creates a `User` by email; Google-created accounts start `email_verified` with no local password. |
+
+`/drivers` and `/vehicles` require the `employee`/`admin` role (`require_staff`);
+everything else above is open to any authenticated `user`, or unauthenticated
+where noted.
 
 There are deliberately **no read endpoints for telemetry frames, driving events
 or risk windows yet** — the live path is the WebSocket, and the historical read
@@ -268,7 +279,7 @@ table is in [docs/architecture.md](docs/architecture.md).
 | 8 | Model training + honest evaluation | ✅ |
 | 9 | Risk engine + explainability | ✅ |
 | 10 | CV driver monitoring | ✅ |
-| 11 | Real-time hardening — survives backend restart without UI breakage | in progress |
+| 11 | Real-time hardening — survives backend restart without UI breakage | ✅ |
 | 12 | Remaining dashboard pages | |
 | 13 | OBD2 / ELM327 integration | |
 | 14 | Test hardening + benchmarking | |
@@ -293,7 +304,8 @@ backend/     FastAPI application, database layer, pipeline, risk engine
   app/core/risk/        Rule-gated risk engine, explainability, batched sink
   app/core/live/        In-process WebSocket fan-out (ADR 0003)
   app/ml/               Artefact loader and inference; no scikit-learn at runtime
-frontend/    React dashboard — Dashboard and Live Drive pages
+  app/core/sessions.py, oauth.py   Session cookie + Google OAuth auth
+frontend/    React dashboard — Login, Dashboard, Live Drive, Driver Monitor pages
 ml/          Offline training pipeline, artefacts and evaluation reports
 cv/          Driver-monitoring service, separate process (ADR 0002)
 docs/        Architecture, model card and ADRs
@@ -301,7 +313,7 @@ data/        Datasets and recordings — gitignored, reproducible
 ```
 
 Database tables: `drivers`, `vehicles`, `trips`, `telemetry`, `driving_events`,
-`risk_windows`, `driver_states`.
+`risk_windows`, `driver_states`, `users`, `sessions`.
 
 ## Configuration
 
