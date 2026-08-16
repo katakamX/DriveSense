@@ -25,6 +25,8 @@ _UNIQUE_CONSTRAINT_FIELDS = {
 
 def _conflict_field(error: IntegrityError) -> str | None:
     diag = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    if not isinstance(diag, str):
+        return None
     return _UNIQUE_CONSTRAINT_FIELDS.get(diag)
 
 
