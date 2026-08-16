@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.deps import get_current_user
+from app.core.oauth import oauth
 from app.core.otp import issue_otp
 from app.core.otp import verify_otp as check_otp
 from app.core.security import hash_password, verify_password
@@ -101,6 +102,12 @@ async def verify_otp_endpoint(
     await db.commit()
     await db.refresh(user)
     return user
+
+
+@router.get("/google/login")
+async def google_login(request: Request) -> Response:
+    settings = get_settings()
+    return await oauth.google.authorize_redirect(request, settings.google_redirect_uri)
 
 
 @router.post("/resend-otp", status_code=status.HTTP_204_NO_CONTENT)
