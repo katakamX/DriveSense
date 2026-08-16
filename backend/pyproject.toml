@@ -18,6 +18,13 @@ dependencies = [
     # Inference only: `app.ml.artifact` evaluates the serialised coefficient
     # dump. No scikit-learn — the backend loads models, it does not fit them.
     "numpy>=1.26",
+    # Browser-camera driver monitoring (`app.core.monitor`). Headless OpenCV:
+    # this process decodes JPEGs, it never opens a window or a capture device
+    # — that is `cv/`'s job, and it uses the GUI build for its debug preview.
+    # Note these pull ~200 MB into every backend install; see the package
+    # docstring in `app/core/monitor/__init__.py` for the ADR 0002 tension.
+    "mediapipe>=1.0",
+    "opencv-python-headless>=4.10",
 ]
 
 [project.optional-dependencies]
@@ -57,3 +64,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+# Neither package ships type stubs. Same override `cv/pyproject.toml` carries,
+# for the same two libraries and the same reason.
+[[tool.mypy.overrides]]
+module = ["cv2.*", "mediapipe.*"]
+ignore_missing_imports = true

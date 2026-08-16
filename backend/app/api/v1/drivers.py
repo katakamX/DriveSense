@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db.models import Driver
 from app.db.session import get_db
@@ -18,7 +19,13 @@ async def create_driver(payload: DriverCreate, db: AsyncSession = Depends(get_db
     driver = Driver(**payload.model_dump())
     db.add(driver)
     await db.commit()
+    # Two refreshes, not one `attribute_names=["current_vehicle"]` call: that
+    # form loads only the named relationship and leaves server-generated
+    # columns (`updated_at`'s `onupdate=func.now()`) at their stale
+    # pre-commit value, which then triggers a lazy load outside the async
+    # context when the response model reads them.
     await db.refresh(driver)
+    await db.refresh(driver, attribute_names=["current_vehicle"])
     return driver
 
 
@@ -27,11 +34,14 @@ async def list_drivers(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     name: str | None = Query(None),
+    code: str | None = Query(None, description="Exact match on driver_code, case-insensitive"),
     db: AsyncSession = Depends(get_db),
 ) -> list[Driver]:
-    stmt = select(Driver)
+    stmt = select(Driver).options(selectinload(Driver.current_vehicle))
     if name is not None:
         stmt = stmt.where(Driver.name == name)
+    if code is not None:
+        stmt = stmt.where(Driver.driver_code == code.upper())
     stmt = stmt.order_by(Driver.created_at).limit(limit).offset(offset)
     result = await db.execute(stmt)
     return list(result.scalars().all())
@@ -39,7 +49,7 @@ async def list_drivers(
 
 @router.get("/{driver_id}", response_model=DriverRead)
 async def get_driver(driver_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Driver:
-    driver = await db.get(Driver, driver_id)
+    driver = await db.get(Driver, driver_id, options=[selectinload(Driver.current_vehicle)])
     if driver is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Driver not found")
     return driver
@@ -56,6 +66,7 @@ async def update_driver(
         setattr(driver, field, value)
     await db.commit()
     await db.refresh(driver)
+    await db.refresh(driver, attribute_names=["current_vehicle"])
     return driver
 
 

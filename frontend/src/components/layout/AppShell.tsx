@@ -28,6 +28,9 @@ export function AppShell({ children }: AppShellProps) {
             <NavLink to="/" end className={navLinkClassName}>
               Dashboard
             </NavLink>
+            <NavLink to="/driver-monitor" className={navLinkClassName}>
+              Driver Monitor
+            </NavLink>
           </nav>
         </div>
       </header>

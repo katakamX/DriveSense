@@ -50,6 +50,14 @@ distraction, PERCLOS, blink rate, `face_detected` — cross the boundary.
   engine renormalises over available signals and marks the assessment
   `degraded`, rather than imputing a neutral drowsiness score.
 
+## Later exception
+
+[ADR 0008](0008-browser-camera-monitor-mode.md) knowingly departs from this
+decision for one specific case: a zero-setup browser demo with no local
+process to run `cv/` on. That path accepts the trade-offs this ADR rejects
+(frames crossing the network, in-process CPU contention) for that narrow
+use only; the decision above still governs the vehicle-mounted deployment.
+
 ## Alternatives considered
 
 **In-process background thread.** Rejected: GIL contention and camera access
