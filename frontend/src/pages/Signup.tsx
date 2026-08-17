@@ -53,10 +53,7 @@ export function Signup() {
       </h1>
       <Panel className="mt-6 p-6">
         {step === 'register' ? (
-          <form
-            onSubmit={(event) => void handleRegister(event)}
-            className="flex flex-col gap-3"
-          >
+          <form onSubmit={(event) => void handleRegister(event)} className="flex flex-col gap-3">
             <label className="sr-only" htmlFor="email">
               Email
             </label>
