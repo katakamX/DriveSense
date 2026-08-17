@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import { AppShell } from '@/components/layout/AppShell';
 import { Dashboard } from '@/pages/Dashboard';
+import { DriverApplication } from '@/pages/DriverApplication';
 import { DriverMonitor } from '@/pages/DriverMonitor';
 import { EmployeeLogin } from '@/pages/EmployeeLogin';
 import { LiveDrive } from '@/pages/LiveDrive';
@@ -17,6 +18,7 @@ export function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/employee/login" element={<EmployeeLogin />} />
+          <Route path="/become-a-driver" element={<DriverApplication />} />
           <Route path="/trips/:tripId/live" element={<LiveDrive />} />
           <Route path="/driver-monitor" element={<DriverMonitor />} />
         </Routes>
