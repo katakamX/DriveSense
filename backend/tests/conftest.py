@@ -1,12 +1,14 @@
 import asyncio
 import sys
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.config import get_settings
 from app.db.models import User, UserRole
 from app.db.session import engine, get_db
 from app.main import create_app
@@ -30,6 +32,21 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         await session.close()
         await transaction.rollback()
         await connection.close()
+
+
+@pytest.fixture
+def storage_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """Point document storage (ADR 0009) at a temp dir for the duration of a test.
+
+    Goes through the environment rather than patching the module, because
+    `get_settings` is `lru_cache`d and read at call time by both the storage
+    layer and the upload endpoints — clearing the cache on the way in and out
+    is what keeps a test's root from leaking into the next one.
+    """
+    monkeypatch.setenv("DOCUMENT_STORAGE_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    yield tmp_path
+    get_settings.cache_clear()
 
 
 @pytest.fixture

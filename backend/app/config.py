@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     # Frontend route to land on once the callback has set the login cookie.
     oauth_success_redirect: str = "http://localhost:5173/"
 
+    # Driver-application documents (M-Auth-3, app.core.documents). Local disk,
+    # not object storage — see ADR 0009. Gitignored, and a container needs this
+    # mounted as a volume for uploads to survive a restart.
+    document_storage_dir: Path = REPO_ROOT / "storage" / "documents"
+    # Per-file ceiling. Generous for a phone photo or a scanned PDF, small
+    # enough that 13 of them per applicant stays unremarkable on disk.
+    document_max_bytes: int = 10 * 1024 * 1024
+
     # Fallback speed limit for trips that don't set their own — a configured
     # placeholder, not a claim about any real road's actual limit.
     default_speed_limit_kph: float = 100.0

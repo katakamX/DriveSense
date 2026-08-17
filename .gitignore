@@ -37,6 +37,10 @@ ml/artifacts/
 cv/.models/
 backend/app/core/monitor/.models/
 
+# Uploaded driver-application documents (ADR 0009). Real applicant ID scans —
+# never committed; a deployment mounts this path as a volume.
+storage/
+
 # Editors / OS
 .vscode/
 .idea/
