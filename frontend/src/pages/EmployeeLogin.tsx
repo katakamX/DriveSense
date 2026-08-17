@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { Panel } from '@/components/ui/Panel';
-import { login } from '@/lib/api/auth';
+import { login, logout } from '@/lib/api/auth';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+const STAFF_ROLES = new Set(['employee', 'admin']);
 
-export function Login() {
+export function EmployeeLogin() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +18,12 @@ export function Login() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      const user = await login(email, password);
+      if (!STAFF_ROLES.has(user.role)) {
+        await logout();
+        setError('This account is not authorized for employee access.');
+        return;
+      }
       void navigate('/');
     } catch {
       setError('Invalid email or password');
@@ -29,7 +34,7 @@ export function Login() {
 
   return (
     <div className="mx-auto mt-16 max-w-sm">
-      <h1 className="text-2xl font-semibold">Sign in</h1>
+      <h1 className="text-2xl font-semibold">Employee sign in</h1>
       <Panel className="mt-6 p-6">
         <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-3">
           <label className="sr-only" htmlFor="email">
@@ -68,32 +73,12 @@ export function Login() {
           </button>
         </form>
 
-        <div className="my-4 flex items-center gap-3 text-xs text-content-muted">
-          <span className="h-px flex-1 bg-border-subtle" />
-          or
-          <span className="h-px flex-1 bg-border-subtle" />
-        </div>
-
-        <a
-          href={`${API_BASE}/auth/google/login`}
-          className="flex w-full items-center justify-center gap-2 rounded-md border border-border-subtle bg-surface-overlay px-4 py-2.5 text-sm font-medium text-content-primary hover:bg-surface-raised"
-        >
-          Sign in with Google
-        </a>
-
         <p className="mt-4 text-center text-sm text-content-secondary">
-          No account?{' '}
-          <Link to="/signup" className="text-accent hover:underline">
-            Sign up
+          <Link to="/login" className="hover:underline">
+            Back to sign in
           </Link>
         </p>
       </Panel>
-
-      <p className="mt-6 text-center text-xs text-content-muted">
-        <Link to="/employee/login" className="hover:underline">
-          Employee login
-        </Link>
-      </p>
     </div>
   );
 }
