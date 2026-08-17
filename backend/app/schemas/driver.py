@@ -56,6 +56,7 @@ class DriverRead(BaseModel):
     license_number: str
     date_of_birth: date
     driver_code: str | None
+    status: str
     current_vehicle: DriverVehicleRead | None
     created_at: datetime
     updated_at: datetime

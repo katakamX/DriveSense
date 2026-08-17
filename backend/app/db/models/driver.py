@@ -1,11 +1,26 @@
 import uuid
 from datetime import date, datetime
+from enum import StrEnum
 
 from sqlalchemy import Date, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.models.vehicle import Vehicle
+
+
+class DriverStatus(StrEnum):
+    """Where a driver application sits in review.
+
+    `DRAFT` is the state an application occupies while its 13 documents are
+    still being uploaded one request at a time; it becomes `PENDING` only once
+    the set is complete and the applicant submits it for review.
+    """
+
+    DRAFT = "draft"
+    PENDING = "pending"
+    VERIFIED = "verified"
+    REJECTED = "rejected"
 
 
 class Driver(Base):
@@ -27,6 +42,17 @@ class Driver(Base):
         ForeignKey("vehicles.id"), nullable=True
     )
     current_vehicle: Mapped[Vehicle | None] = relationship()
+    # The `User` whose driver application produced this row. Nullable because
+    # staff-created drivers (the `/drivers` CRUD endpoints) have no applicant
+    # behind them; unique because a user carries at most one application.
+    # SET NULL rather than CASCADE: deleting a login should not destroy the
+    # driving history attached to the driver.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), unique=True, nullable=True
+    )
+    # Plain string, not a DB enum, matching `User.role`'s convention here —
+    # validated at the application boundary (`DriverStatus`).
+    status: Mapped[str] = mapped_column(String(20), default=DriverStatus.DRAFT)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
