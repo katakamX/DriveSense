@@ -23,6 +23,7 @@ if sys.platform == "win32":
 
 from app.api.v1 import (
     auth,
+    driver_applications,
     driver_monitor,
     drivers,
     health,
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     v1.include_router(health.router)
     v1.include_router(auth.router)
     v1.include_router(drivers.router)
+    v1.include_router(driver_applications.router)
     v1.include_router(vehicles.router)
     v1.include_router(trips.router)
     v1.include_router(telemetry.router)

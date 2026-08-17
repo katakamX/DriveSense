@@ -39,6 +39,10 @@ dependencies = [
     # authorization-code exchange and CSRF state check rather than a
     # hand-rolled implementation.
     "authlib>=1.3",
+    # Multipart form parsing, required by FastAPI's `UploadFile`/`Form` for the
+    # driver-application document uploads (M-Auth-3). FastAPI raises at import
+    # time on a route that declares them without this installed.
+    "python-multipart>=0.0.20",
     # SessionMiddleware, used only to hold Authlib's short-lived OAuth CSRF
     # state between the /google/login redirect and the /google/callback -
     # unrelated to the app's own DB-backed session cookie.
