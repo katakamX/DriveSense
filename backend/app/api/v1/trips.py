@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.deps import require_staff
 from app.core.events import discard_trip, flush_trip
 from app.core.live import publish
 from app.core.risk import sink as risk_sink
@@ -19,7 +20,7 @@ from app.schemas.trip import TripCreate, TripRead, TripUpdate
 # state machine has to be closed and persisted rather than left dangling.
 TERMINAL_TRIP_STATUSES = frozenset({"completed", "ended", "aborted", "cancelled"})
 
-router = APIRouter(prefix="/trips", tags=["trips"])
+router = APIRouter(prefix="/trips", tags=["trips"], dependencies=[Depends(require_staff)])
 
 
 @router.post("", response_model=TripRead, status_code=status.HTTP_201_CREATED)

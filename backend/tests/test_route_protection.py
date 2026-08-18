@@ -1,12 +1,13 @@
 """Auth step 6: which routes the role gate covers, and which it doesn't.
 
-Drivers and vehicles are admin/creation endpoints and now require a *staff*
-session (`app.core.deps.require_staff`: logged in AND role in {employee,
-admin}, applied at the router level in `app.api.v1.drivers` and
-`app.api.v1.vehicles`). A plain logged-in "user" is refused just like an
-anonymous caller. Everything the simulator, the CV process, and the
-browser-camera monitor talk to must keep working without any of that:
-telemetry ingest, driver-state ingest, and the driver-monitor socket.
+Drivers, vehicles, and trips are admin/creation endpoints and now require a
+*staff* session (`app.core.deps.require_staff`: logged in AND role in
+{employee, admin}, applied at the router level in `app.api.v1.drivers`,
+`app.api.v1.vehicles`, and `app.api.v1.trips`). A plain logged-in "user" is
+refused just like an anonymous caller. Everything the simulator, the CV
+process, and the browser-camera monitor talk to must keep working without
+any of that: telemetry ingest, driver-state ingest, and the driver-monitor
+socket.
 """
 
 from __future__ import annotations
@@ -93,6 +94,22 @@ def test_create_vehicle_requires_authentication(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+def test_list_trips_requires_authentication(client: TestClient) -> None:
+    assert client.get("/api/v1/trips").status_code == 401
+
+
+def test_create_trip_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/trips",
+        json={
+            "driver_id": "00000000-0000-0000-0000-000000000000",
+            "vehicle_id": "00000000-0000-0000-0000-000000000000",
+            "started_at": "2026-08-09T10:00:00Z",
+        },
+    )
+    assert response.status_code == 401
+
+
 # --- logged in, but not staff: also refused --------------------------------
 
 
@@ -127,6 +144,16 @@ def test_create_vehicle_refuses_plain_user_role(client: TestClient) -> None:
             "license_plate": "RP-PLAIN",
         },
     )
+    assert response.status_code == 403
+
+
+def test_list_trips_refuses_plain_user_role(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "plain-user-3@example.com", "password": "correcthorsebattery"},
+    )
+
+    response = client.get("/api/v1/trips")
     assert response.status_code == 403
 
 
