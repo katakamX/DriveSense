@@ -10,11 +10,13 @@ looks at applications that are not their own.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.driver_applications import build_application_read, load_documents
 from app.core.deps import require_staff
+from app.core.documents import document_absolute_path
 from app.db.models import (
     REQUIRED_DOCUMENT_TOTAL,
     Driver,
@@ -82,6 +84,24 @@ async def get_application(
 ) -> DriverApplicationRead:
     driver = await _load_driver(db, driver_id)
     return build_application_read(driver, await load_documents(db, driver.id))
+
+
+@router.get("/applications/{driver_id}/documents/{document_id}/file")
+async def get_application_document(
+    driver_id: uuid.UUID,
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """Stream one uploaded file back for the reviewer to look at (ADR 0009:
+    the backend reads and streams it, rather than handing out a presigned URL).
+    """
+    document = await db.get(DocumentUpload, document_id)
+    # Same "wrong owner reads as missing" answer as the applicant-facing
+    # delete route: a document that exists but belongs to a different
+    # application is reported as not found, not as forbidden.
+    if document is None or document.driver_id != driver_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
+    return FileResponse(document_absolute_path(document.file_path), media_type=document.content_type)
 
 
 async def _transition_pending(db: AsyncSession, driver_id: uuid.UUID, to: DriverStatus) -> Driver:

@@ -161,3 +161,51 @@ async def test_rejected_application_is_editable_again(
 
     assert response.status_code == 201, response.text
     assert response.json()["status"] == "rejected"
+
+
+async def test_get_document_file_returns_the_bytes(
+    client: TestClient, db_session: AsyncSession, storage_root: Path
+) -> None:
+    register_and_login(client, "review-applicant-file@example.com")
+    client.post(
+        "/api/v1/driver-applications", json={**BASIC_INFO, "license_number": "REV-FILE-001"}
+    )
+    uploaded = upload(client, "face_photo").json()
+    driver_id = uploaded["id"]
+    document_id = uploaded["documents"][0]["id"]
+    client.post("/api/v1/auth/logout")
+
+    await register_staff(client, db_session, "review-staff-file@example.com")
+
+    response = client.get(
+        f"/api/v1/driver-review/applications/{driver_id}/documents/{document_id}/file"
+    )
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"\x89PNG")
+    assert response.headers["content-type"] == "image/png"
+
+
+async def test_get_document_file_wrong_driver_404s(
+    client: TestClient, db_session: AsyncSession, storage_root: Path
+) -> None:
+    register_and_login(client, "review-applicant-file-a@example.com")
+    client.post(
+        "/api/v1/driver-applications", json={**BASIC_INFO, "license_number": "REV-FILE-A-001"}
+    )
+    document_id = upload(client, "face_photo").json()["documents"][0]["id"]
+    client.post("/api/v1/auth/logout")
+
+    register_and_login(client, "review-applicant-file-b@example.com")
+    other = client.post(
+        "/api/v1/driver-applications", json={**BASIC_INFO, "license_number": "REV-FILE-B-001"}
+    ).json()
+    client.post("/api/v1/auth/logout")
+
+    await register_staff(client, db_session, "review-staff-file-mismatch@example.com")
+
+    response = client.get(
+        f"/api/v1/driver-review/applications/{other['id']}/documents/{document_id}/file"
+    )
+
+    assert response.status_code == 404
