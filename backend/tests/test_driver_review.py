@@ -186,6 +186,29 @@ async def test_get_document_file_returns_the_bytes(
     assert response.headers["content-type"] == "image/png"
 
 
+async def test_get_document_file_requires_staff(
+    client: TestClient, db_session: AsyncSession, storage_root: Path
+) -> None:
+    register_and_login(client, "review-applicant-file-noauth@example.com")
+    uploaded = client.post(
+        "/api/v1/driver-applications", json={**BASIC_INFO, "license_number": "REV-FILE-NOAUTH-001"}
+    ).json()
+    driver_id = uploaded["id"]
+    document_id = upload(client, "face_photo").json()["documents"][0]["id"]
+
+    # Still logged in as the plain applicant: staff role required, not just a session.
+    own_document_response = client.get(
+        f"/api/v1/driver-review/applications/{driver_id}/documents/{document_id}/file"
+    )
+    assert own_document_response.status_code == 403
+
+    client.post("/api/v1/auth/logout")
+    anonymous_response = client.get(
+        f"/api/v1/driver-review/applications/{driver_id}/documents/{document_id}/file"
+    )
+    assert anonymous_response.status_code == 401
+
+
 async def test_get_document_file_wrong_driver_404s(
     client: TestClient, db_session: AsyncSession, storage_root: Path
 ) -> None:

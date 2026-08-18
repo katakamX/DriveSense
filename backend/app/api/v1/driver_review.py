@@ -22,6 +22,7 @@ from app.db.models import (
     Driver,
     DocumentUpload,
     DriverStatus,
+    User,
 )
 from app.db.session import get_db
 from app.schemas.driver_application import DriverApplicationRead, DriverApplicationSummary
@@ -91,6 +92,7 @@ async def get_application_document(
     driver_id: uuid.UUID,
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _reviewer: User = Depends(require_staff),
 ) -> FileResponse:
     """Stream one uploaded file back for the reviewer to look at (ADR 0009:
     the backend reads and streams it, rather than handing out a presigned URL).
