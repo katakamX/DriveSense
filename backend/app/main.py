@@ -24,6 +24,7 @@ if sys.platform == "win32":
 from app.api.v1 import (
     auth,
     driver_applications,
+    driver_dashboard,
     driver_monitor,
     driver_review,
     drivers,
@@ -105,6 +106,10 @@ def create_app() -> FastAPI:
     v1.include_router(driver_applications.router)
     v1.include_router(driver_review.router)
     v1.include_router(vehicles.router)
+    # driver_dashboard's literal "/trips/me" must be registered before
+    # trips.router, or "/trips/{trip_id}" would swallow it (Starlette
+    # matches routes in registration order, not by specificity).
+    v1.include_router(driver_dashboard.router)
     v1.include_router(trips.router)
     v1.include_router(telemetry.router)
     v1.include_router(ingest.router)
