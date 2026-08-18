@@ -6,7 +6,9 @@ produce an explainable real-time driver-risk score.
 
 > **Status: Milestones 1–11 of 15 complete.** Auth (Google OAuth + email/
 > password login, sessions, role-gated routes) has also shipped, alongside the
-> milestone track.
+> milestone track — including the driver application flow (basic info, 13
+> required documents, submit for review) and the staff-side review queue
+> (verify/reject an application, view its uploaded documents).
 > The end-to-end path works: the simulator produces telemetry, the backend
 > ingests it at 10 Hz into an in-process ring buffer, detects driving events,
 > extracts features, runs a trained classifier and a rule-gated risk engine on
@@ -49,6 +51,8 @@ real trade-offs are recorded as ADRs in [docs/adr/](docs/adr/):
 - [0005 — Shared contracts package; `TelemetrySource` is producer-side](docs/adr/0005-shared-contracts-package.md)
 - [0006 — The training-label rubric is weak supervision, not ground truth](docs/adr/0006-training-label-rubric.md)
 - [0007 — The model can raise a risk band but never independently reach `HIGH_RISK`](docs/adr/0007-risk-engine-rule-gating.md)
+- [0008 — Browser-camera driver monitor is an accepted exception to ADR 0002](docs/adr/0008-browser-camera-monitor-mode.md)
+- [0009 — Driver documents are stored on local disk, not object storage](docs/adr/0009-local-disk-document-storage.md)
 
 ## Tech stack
 
@@ -233,10 +237,16 @@ docs at `/docs`.
 | `POST` | `/auth/verify-otp`, `/auth/resend-otp` | Email OTP verification for password accounts. |
 | `GET` | `/auth/me` | Current session's user. |
 | `GET` | `/auth/google/login`, `/auth/google/callback` | Google OAuth sign-in (Authlib). Finds-or-creates a `User` by email; Google-created accounts start `email_verified` with no local password. |
+| `POST` `GET` | `/driver-applications`, `/driver-applications/me` | Start/read the current user's driver application (basic info + status). |
+| `POST` `DELETE` | `/driver-applications/me/documents`, `/driver-applications/me/documents/{id}` | Upload/remove one of the 13 required documents (ADR 0009). |
+| `POST` | `/driver-applications/me/submit` | Move a complete application to `pending` review. |
+| `GET` | `/driver-review/applications`, `/driver-review/applications/{id}` | Staff review queue and one application's full detail, filterable by status. |
+| `GET` | `/driver-review/applications/{id}/documents/{id}/file` | Stream one uploaded document's bytes back to a reviewer. |
+| `POST` | `/driver-review/applications/{id}/verify`, `/driver-review/applications/{id}/reject` | Decide a `pending` application. |
 
-`/drivers` and `/vehicles` require the `employee`/`admin` role (`require_staff`);
-everything else above is open to any authenticated `user`, or unauthenticated
-where noted.
+`/drivers`, `/vehicles` and everything under `/driver-review` require the
+`employee`/`admin` role (`require_staff`); everything else above is open to
+any authenticated `user`, or unauthenticated where noted.
 
 There are deliberately **no read endpoints for telemetry frames, driving events
 or risk windows yet** — the live path is the WebSocket, and the historical read
@@ -306,7 +316,8 @@ backend/     FastAPI application, database layer, pipeline, risk engine
   app/core/live/        In-process WebSocket fan-out (ADR 0003)
   app/ml/               Artefact loader and inference; no scikit-learn at runtime
   app/core/sessions.py, oauth.py   Session cookie + Google OAuth auth
-frontend/    React dashboard — Login, Dashboard, Live Drive, Driver Monitor pages
+frontend/    React dashboard — Login, Dashboard, Live Drive, Driver Monitor,
+             Driver Application, Employee Login/Review pages
 ml/          Offline training pipeline, artefacts and evaluation reports
 cv/          Driver-monitoring service, separate process (ADR 0002)
 docs/        Architecture, model card and ADRs
@@ -314,7 +325,7 @@ data/        Datasets and recordings — gitignored, reproducible
 ```
 
 Database tables: `drivers`, `vehicles`, `trips`, `telemetry`, `driving_events`,
-`risk_windows`, `driver_states`, `users`, `sessions`.
+`risk_windows`, `driver_states`, `users`, `sessions`, `document_uploads`.
 
 ## Configuration
 
