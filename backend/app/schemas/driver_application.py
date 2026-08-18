@@ -53,3 +53,20 @@ class DriverApplicationRead(BaseModel):
     # Computed server-side so the client never has to reimplement the rule to
     # decide whether to enable its submit button.
     is_complete: bool
+
+
+class DriverApplicationSummary(BaseModel):
+    """One row of the staff review queue (M-Auth-4).
+
+    Deliberately lighter than `DriverApplicationRead`: the queue lists many
+    applications at once, and a reviewer needs the status/progress to decide
+    which to open, not every document row up front.
+    """
+
+    id: uuid.UUID
+    name: str
+    license_number: str
+    status: str
+    created_at: datetime
+    documents_uploaded: int
+    documents_required: int

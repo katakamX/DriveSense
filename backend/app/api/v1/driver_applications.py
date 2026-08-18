@@ -45,7 +45,7 @@ router = APIRouter(prefix="/driver-applications", tags=["driver-applications"])
 _EDITABLE_STATUSES = frozenset({DriverStatus.DRAFT, DriverStatus.REJECTED})
 
 
-def _build_read(driver: Driver, documents: list[DocumentUpload]) -> DriverApplicationRead:
+def build_application_read(driver: Driver, documents: list[DocumentUpload]) -> DriverApplicationRead:
     uploaded_counts: dict[str, int] = {}
     for document in documents:
         uploaded_counts[document.document_type] = uploaded_counts.get(document.document_type, 0) + 1
@@ -80,7 +80,7 @@ async def _load_application(db: AsyncSession, user: User) -> Driver:
     return driver
 
 
-async def _load_documents(db: AsyncSession, driver_id: uuid.UUID) -> list[DocumentUpload]:
+async def load_documents(db: AsyncSession, driver_id: uuid.UUID) -> list[DocumentUpload]:
     result = await db.execute(
         select(DocumentUpload)
         .where(DocumentUpload.driver_id == driver_id)
@@ -110,7 +110,7 @@ async def create_application(
             "An application already exists for this user or licence number",
         ) from exc
     await db.refresh(driver)
-    return _build_read(driver, [])
+    return build_application_read(driver, [])
 
 
 @router.get("/me", response_model=DriverApplicationRead)
@@ -118,7 +118,7 @@ async def get_my_application(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> DriverApplicationRead:
     driver = await _load_application(db, user)
-    return _build_read(driver, await _load_documents(db, driver.id))
+    return build_application_read(driver, await load_documents(db, driver.id))
 
 
 @router.post(
@@ -142,7 +142,7 @@ async def upload_document(
             status.HTTP_409_CONFLICT, f"Application is {driver.status} and can no longer be changed"
         )
 
-    documents = await _load_documents(db, driver.id)
+    documents = await load_documents(db, driver.id)
     limit = REQUIRED_DOCUMENT_COUNTS[document_type]
     already = sum(1 for document in documents if document.document_type == document_type.value)
     if already >= limit:
@@ -167,7 +167,7 @@ async def upload_document(
     db.add(upload)
     await db.commit()
     await db.refresh(upload)
-    return _build_read(driver, [*documents, upload])
+    return build_application_read(driver, [*documents, upload])
 
 
 @router.delete("/me/documents/{document_id}", response_model=DriverApplicationRead)
@@ -197,7 +197,7 @@ async def delete_document(
 
     await db.delete(document)
     await db.commit()
-    return _build_read(driver, await _load_documents(db, driver.id))
+    return build_application_read(driver, await load_documents(db, driver.id))
 
 
 @router.post("/me/submit", response_model=DriverApplicationRead)
@@ -209,8 +209,8 @@ async def submit_application(
     if driver.status not in _EDITABLE_STATUSES:
         raise HTTPException(status.HTTP_409_CONFLICT, f"Application is already {driver.status}")
 
-    documents = await _load_documents(db, driver.id)
-    application = _build_read(driver, documents)
+    documents = await load_documents(db, driver.id)
+    application = build_application_read(driver, documents)
     if not application.is_complete:
         missing = ", ".join(
             f"{row.document_type} ({row.uploaded}/{row.required})"
@@ -222,4 +222,4 @@ async def submit_application(
     driver.status = DriverStatus.PENDING
     await db.commit()
     await db.refresh(driver)
-    return _build_read(driver, documents)
+    return build_application_read(driver, documents)

@@ -25,6 +25,7 @@ from app.api.v1 import (
     auth,
     driver_applications,
     driver_monitor,
+    driver_review,
     drivers,
     health,
     ingest,
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
     v1.include_router(auth.router)
     v1.include_router(drivers.router)
     v1.include_router(driver_applications.router)
+    v1.include_router(driver_review.router)
     v1.include_router(vehicles.router)
     v1.include_router(trips.router)
     v1.include_router(telemetry.router)
