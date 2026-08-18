@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { Dashboard } from '@/pages/Dashboard';
 import { DriverApplication } from '@/pages/DriverApplication';
+import { DriverDashboard } from '@/pages/DriverDashboard';
 import { DriverMonitor } from '@/pages/DriverMonitor';
 import { EmployeeLogin } from '@/pages/EmployeeLogin';
 import { EmployeeReviewDetail, EmployeeReviewQueue } from '@/pages/EmployeeReview';
@@ -16,6 +17,7 @@ export function App() {
       <AppShell>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<DriverDashboard />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/employee/login" element={<EmployeeLogin />} />
