@@ -146,6 +146,7 @@ cd backend
 python -m venv .venv
 .venv/Scripts/activate          # Windows;  source .venv/bin/activate on Unix
 pip install -e ".[dev]"
+pre-commit install               # once per clone — runs lint/format checks pre-commit
 alembic upgrade head             # schema — nothing creates it implicitly
 
 # Windows — recommended, frees the port first (see below)
