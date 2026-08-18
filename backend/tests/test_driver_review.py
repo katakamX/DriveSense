@@ -136,6 +136,46 @@ async def test_verify_non_pending_application_conflicts(
     assert response.status_code == 409
 
 
+async def test_verify_an_already_verified_application_conflicts(
+    client: TestClient, db_session: AsyncSession, storage_root: Path
+) -> None:
+    application = await _submitted_application(
+        client, "REV-REVERIFY-001", "review-applicant-reverify@example.com"
+    )
+    await register_staff(client, db_session, "review-staff-reverify@example.com")
+    first = client.post(f"/api/v1/driver-review/applications/{application['id']}/verify")
+    assert first.status_code == 200, first.text
+
+    second = client.post(f"/api/v1/driver-review/applications/{application['id']}/verify")
+
+    assert second.status_code == 409
+
+
+async def test_reject_an_already_rejected_application_conflicts(
+    client: TestClient, db_session: AsyncSession, storage_root: Path
+) -> None:
+    application = await _submitted_application(
+        client, "REV-REREJECT-001", "review-applicant-rereject@example.com"
+    )
+    await register_staff(client, db_session, "review-staff-rereject@example.com")
+    first = client.post(f"/api/v1/driver-review/applications/{application['id']}/reject")
+    assert first.status_code == 200, first.text
+
+    second = client.post(f"/api/v1/driver-review/applications/{application['id']}/reject")
+
+    assert second.status_code == 409
+
+
+async def test_verify_nonexistent_driver_404s(client: TestClient, db_session: AsyncSession) -> None:
+    await register_staff(client, db_session, "review-staff-verify-404@example.com")
+
+    response = client.post(
+        "/api/v1/driver-review/applications/00000000-0000-0000-0000-000000000000/verify"
+    )
+
+    assert response.status_code == 404
+
+
 async def test_rejected_application_is_editable_again(
     client: TestClient, db_session: AsyncSession, storage_root: Path
 ) -> None:
@@ -205,6 +245,45 @@ async def test_get_document_file_requires_staff(
         f"/api/v1/driver-review/applications/{driver_id}/documents/{document_id}/file"
     )
     assert anonymous_response.status_code == 401
+
+
+async def test_get_document_file_malformed_document_id_422s(
+    client: TestClient, db_session: AsyncSession, storage_root: Path
+) -> None:
+    register_and_login(client, "review-applicant-file-malformed@example.com")
+    uploaded = client.post(
+        "/api/v1/driver-applications", json={**BASIC_INFO, "license_number": "REV-FILE-MAL-001"}
+    ).json()
+    driver_id = uploaded["id"]
+    client.post("/api/v1/auth/logout")
+
+    await register_staff(client, db_session, "review-staff-file-malformed@example.com")
+
+    response = client.get(
+        f"/api/v1/driver-review/applications/{driver_id}/documents/not-a-uuid/file"
+    )
+
+    assert response.status_code == 422
+
+
+async def test_get_document_file_nonexistent_document_404s(
+    client: TestClient, db_session: AsyncSession, storage_root: Path
+) -> None:
+    register_and_login(client, "review-applicant-file-nodoc@example.com")
+    uploaded = client.post(
+        "/api/v1/driver-applications", json={**BASIC_INFO, "license_number": "REV-FILE-NODOC-001"}
+    ).json()
+    driver_id = uploaded["id"]
+    client.post("/api/v1/auth/logout")
+
+    await register_staff(client, db_session, "review-staff-file-nodoc@example.com")
+
+    response = client.get(
+        f"/api/v1/driver-review/applications/{driver_id}/documents/"
+        "00000000-0000-0000-0000-000000000000/file"
+    )
+
+    assert response.status_code == 404
 
 
 async def test_get_document_file_wrong_driver_404s(
