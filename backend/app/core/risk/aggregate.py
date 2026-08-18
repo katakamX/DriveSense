@@ -160,6 +160,12 @@ def finalise(accumulator: TripRiskAccumulator) -> TripRiskSummary:
         trip_score = accumulator.coverage_weighted_score_sum / accumulator.coverage_sum
     else:
         trip_score = accumulator.score_sum / accumulator.window_count
+    # Every window score is already within [0, 100]; the weighted division
+    # above is a sum-of-in-range-values divided by a positive weight, which
+    # is mathematically in range too, but float rounding can walk the result
+    # a ULP past 100.0. Clamp rather than let that leak into the published
+    # score and its band.
+    trip_score = min(max(trip_score, 0.0), 100.0)
 
     return TripRiskSummary(
         risk_engine_version=accumulator.risk_engine_version,
