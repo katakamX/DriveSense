@@ -19,6 +19,7 @@ from app.db.models import (
     REQUIRED_DOCUMENT_TOTAL,
     Driver,
     DocumentUpload,
+    DriverStatus,
 )
 from app.db.session import get_db
 from app.schemas.driver_application import DriverApplicationRead, DriverApplicationSummary
@@ -80,4 +81,46 @@ async def get_application(
     db: AsyncSession = Depends(get_db),
 ) -> DriverApplicationRead:
     driver = await _load_driver(db, driver_id)
+    return build_application_read(driver, await load_documents(db, driver.id))
+
+
+async def _transition_pending(db: AsyncSession, driver_id: uuid.UUID, to: DriverStatus) -> Driver:
+    """Load a pending application and move it to `to`, or 409 if it is not pending.
+
+    Only `pending` is a valid starting point: that is the status the
+    applicant-facing `/submit` endpoint uses to mean "these are the final
+    files, go look at them" — verifying or rejecting a `draft` (still being
+    edited) or an already-decided application would record a decision
+    against files the applicant could still be changing, or overwrite one
+    that already exists.
+    """
+    driver = await _load_driver(db, driver_id)
+    if driver.status != DriverStatus.PENDING:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Application is {driver.status}, not pending review"
+        )
+    driver.status = to
+    await db.commit()
+    await db.refresh(driver)
+    return driver
+
+
+@router.post("/applications/{driver_id}/verify", response_model=DriverApplicationRead)
+async def verify_application(
+    driver_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> DriverApplicationRead:
+    driver = await _transition_pending(db, driver_id, DriverStatus.VERIFIED)
+    return build_application_read(driver, await load_documents(db, driver.id))
+
+
+@router.post("/applications/{driver_id}/reject", response_model=DriverApplicationRead)
+async def reject_application(
+    driver_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> DriverApplicationRead:
+    """Send the application back to the applicant, who may edit and resubmit it.
+
+    `driver_applications.py`'s `_EDITABLE_STATUSES` already includes
+    `rejected` for exactly this — no change needed there.
+    """
+    driver = await _transition_pending(db, driver_id, DriverStatus.REJECTED)
     return build_application_read(driver, await load_documents(db, driver.id))
