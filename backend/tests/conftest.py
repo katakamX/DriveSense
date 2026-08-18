@@ -5,16 +5,33 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import update
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
+from app.db.base import Base
 from app.db.models import User, UserRole
 from app.db.session import engine, get_db
 from app.main import create_app
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def _clean_database() -> AsyncIterator[None]:
+    """Truncate every table before the run starts.
+
+    The test suite points at the same Postgres database as local dev
+    (`database_url` has no separate test override), so rows left over from
+    manual/dev use of the app would otherwise leak into list/filter
+    assertions — each test's `db_session` only rolls back its own
+    savepoint, it never touches rows already committed beforehand.
+    """
+    table_names = ", ".join(f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables))
+    async with engine.begin() as conn:
+        await conn.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
+    yield
 
 
 @pytest.fixture
