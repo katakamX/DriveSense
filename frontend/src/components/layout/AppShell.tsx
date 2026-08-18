@@ -34,6 +34,9 @@ export function AppShell({ children }: AppShellProps) {
             <NavLink to="/become-a-driver" className={navLinkClassName}>
               Become a Driver
             </NavLink>
+            <NavLink to="/employee/review" className={navLinkClassName}>
+              Review Applications
+            </NavLink>
           </nav>
         </div>
       </header>
