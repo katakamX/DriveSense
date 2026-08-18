@@ -75,9 +75,7 @@ async def test_get_application_returns_full_detail(
 async def test_get_application_not_found(client: TestClient, db_session: AsyncSession) -> None:
     await register_staff(client, db_session, "review-staff-404@example.com")
 
-    response = client.get(
-        "/api/v1/driver-review/applications/00000000-0000-0000-0000-000000000000"
-    )
+    response = client.get("/api/v1/driver-review/applications/00000000-0000-0000-0000-000000000000")
 
     assert response.status_code == 404
 

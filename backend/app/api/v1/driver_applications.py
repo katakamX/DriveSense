@@ -45,7 +45,9 @@ router = APIRouter(prefix="/driver-applications", tags=["driver-applications"])
 _EDITABLE_STATUSES = frozenset({DriverStatus.DRAFT, DriverStatus.REJECTED})
 
 
-def build_application_read(driver: Driver, documents: list[DocumentUpload]) -> DriverApplicationRead:
+def build_application_read(
+    driver: Driver, documents: list[DocumentUpload]
+) -> DriverApplicationRead:
     uploaded_counts: dict[str, int] = {}
     for document in documents:
         uploaded_counts[document.document_type] = uploaded_counts.get(document.document_type, 0) + 1

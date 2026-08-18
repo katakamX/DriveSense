@@ -19,8 +19,8 @@ from app.core.deps import require_staff
 from app.core.documents import document_absolute_path
 from app.db.models import (
     REQUIRED_DOCUMENT_TOTAL,
-    Driver,
     DocumentUpload,
+    Driver,
     DriverStatus,
     User,
 )
@@ -103,7 +103,8 @@ async def get_application_document(
     # application is reported as not found, not as forbidden.
     if document is None or document.driver_id != driver_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
-    return FileResponse(document_absolute_path(document.file_path), media_type=document.content_type)
+    path = document_absolute_path(document.file_path)
+    return FileResponse(path, media_type=document.content_type)
 
 
 async def _transition_pending(db: AsyncSession, driver_id: uuid.UUID, to: DriverStatus) -> Driver:
