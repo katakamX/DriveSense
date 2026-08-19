@@ -23,6 +23,7 @@ import asyncio
 import math
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from app.db.session import SessionLocal
@@ -49,6 +50,17 @@ DEFAULT_POST_RUN_GRACE_S = 2.0
 VEHICLE_SPEC = "hatchback"
 
 
+def _widen_thread_pool(min_workers: int) -> None:
+    """`asyncio.to_thread`'s default executor caps out at `min(32, cpu_count+4)`
+    workers -- comfortably enough for ordinary background work, but a level
+    with more concurrent trips than that would have producer threads queued
+    waiting for a worker instead of running, which is a limit of this harness
+    running on one machine, not of the backend under test. Sized to the
+    ramp's top level so a measured degradation is never actually this."""
+    loop = asyncio.get_running_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=min_workers + 4))
+
+
 @dataclass
 class TripResult:
     trip_id: uuid.UUID
@@ -58,6 +70,7 @@ class TripResult:
     received_at: dict[int, float]
     risk_messages: int
     event_messages: int
+    listener_connect_failed: bool
 
 
 @dataclass
@@ -67,11 +80,22 @@ class LevelResult:
     frames_sent: int
     frames_failed: int
     frames_dropped: int
+    listener_connect_failures: int = 0
     latencies_ms: list[float] = field(default_factory=list)
 
     @property
     def throughput_fps(self) -> float:
         return self.frames_sent / self.wall_duration_s if self.wall_duration_s > 0 else 0.0
+
+    @property
+    def collapsed(self) -> bool:
+        """No frame completed a round trip even though the level tried real
+        work. `percentile()` returning `None` is ambiguous by itself -- an
+        empty level (nothing attempted) and a level where every single send
+        failed both produce it -- and conflating the two is exactly how a
+        prior version of this report claimed p95 "stayed under target"
+        through levels that had, in fact, produced zero successful frames."""
+        return not self.latencies_ms and (self.frames_failed > 0 or self.frames_sent > 0)
 
     def percentile(self, p: float) -> float | None:
         return _percentile(self.latencies_ms, p)
@@ -95,6 +119,7 @@ def _percentile(values: list[float], p: float) -> float | None:
 def aggregate(concurrency: int, results: list[TripResult], wall_duration_s: float) -> LevelResult:
     frames_sent = sum(r.frames_sent for r in results)
     frames_failed = sum(r.frames_failed for r in results)
+    listener_connect_failures = sum(1 for r in results if r.listener_connect_failed)
     latencies_ms: list[float] = []
     dropped = 0
     for result in results:
@@ -110,6 +135,7 @@ def aggregate(concurrency: int, results: list[TripResult], wall_duration_s: floa
         frames_sent=frames_sent,
         frames_failed=frames_failed,
         frames_dropped=dropped,
+        listener_connect_failures=listener_connect_failures,
         latencies_ms=latencies_ms,
     )
 
@@ -172,6 +198,7 @@ async def run_trip(
         received_at=listener.received_at,
         risk_messages=listener.risk_messages,
         event_messages=listener.event_messages,
+        listener_connect_failed=listener.connect_error is not None,
     )
 
 
@@ -228,6 +255,7 @@ async def ramp(
     the crossing because every level beyond it would only confirm what the
     first crossing already showed.
     """
+    _widen_thread_pool(max(levels))
     async with SessionLocal() as session:
         driver_id, vehicle_id = await ensure_driver_and_vehicle(session)
 
@@ -246,6 +274,6 @@ async def ramp(
         )
         level_results.append(result)
         p95 = result.percentile(0.95)
-        if p95 is not None and p95 > latency_target_ms:
+        if result.collapsed or (p95 is not None and p95 > latency_target_ms):
             break
     return level_results

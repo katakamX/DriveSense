@@ -98,3 +98,20 @@ async def test_run_processes_messages_then_stops_on_the_event(
     )
 
     assert 42 in listener.received_at
+
+
+async def test_run_records_a_connect_failure_instead_of_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def refuse(url: str) -> None:
+        raise TimeoutError("timed out during opening handshake")
+
+    monkeypatch.setattr(websockets, "connect", refuse)
+
+    listener = LiveTripListener()
+    stop = asyncio.Event()
+
+    await asyncio.wait_for(listener.run("ws://fake", stop), timeout=5)
+
+    assert listener.connect_error is not None
+    assert listener.received_at == {}

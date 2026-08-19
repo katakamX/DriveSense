@@ -42,18 +42,33 @@ class LiveTripListener:
     snapshot_messages: int = 0
     ping_messages: int = 0
     unrecognized: int = 0
+    connect_error: str | None = None
 
     async def run(self, ws_url: str, stop: asyncio.Event) -> None:
-        """Connect and pump messages until `stop` is set or the socket closes."""
-        async with websockets.connect(ws_url) as ws:
-            pump_task = asyncio.create_task(self._pump(ws))
-            stop_task = asyncio.create_task(stop.wait())
-            try:
-                await asyncio.wait({pump_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
-            finally:
-                pump_task.cancel()
-                stop_task.cancel()
-                await asyncio.gather(pump_task, stop_task, return_exceptions=True)
+        """Connect and pump messages until `stop` is set or the socket closes.
+
+        Never raises. A connection that never opens (refused, or the
+        handshake timing out under load -- the failure this is guarding
+        against, seen when the load generator's own ramp pushed concurrency
+        high enough to starve the accept path) is exactly the kind of thing a
+        benchmark run needs to survive and report, not crash on -- the same
+        reasoning `HttpSink` documents for send failures. `received_at`
+        simply stays empty, which `load_gen.aggregate` already reports as
+        every one of this trip's frames dropped.
+        """
+        try:
+            async with websockets.connect(ws_url) as ws:
+                pump_task = asyncio.create_task(self._pump(ws))
+                stop_task = asyncio.create_task(stop.wait())
+                try:
+                    await asyncio.wait({pump_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    pump_task.cancel()
+                    stop_task.cancel()
+                    await asyncio.gather(pump_task, stop_task, return_exceptions=True)
+        except Exception as exc:
+            logger.warning("Live socket %s failed: %s", ws_url, exc)
+            self.connect_error = str(exc)
 
     async def _pump(self, ws: websockets.ClientConnection) -> None:
         async for raw in ws:

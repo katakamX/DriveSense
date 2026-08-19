@@ -32,3 +32,20 @@ def test_reports_the_first_level_that_crosses_the_target() -> None:
 
 def test_empty_level_list_says_so_rather_than_crashing() -> None:
     assert format_report([]) == "No levels ran."
+
+
+def test_a_collapsed_level_is_never_reported_as_staying_under_target() -> None:
+    """Regression test: a level where every send failed produced no latency
+    samples, so `percentile()` returns None -- the crossover check must not
+    silently treat that as "no crossing seen" and report a pass."""
+    collapsed = LevelResult(
+        concurrency=20,
+        wall_duration_s=32.0,
+        frames_sent=0,
+        frames_failed=6000,
+        frames_dropped=0,
+    )
+    report = format_report([make_level(10, [50.0] * 10), collapsed], target_ms=150.0)
+
+    assert "collapse" in report
+    assert "stayed under" not in report

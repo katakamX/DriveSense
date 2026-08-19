@@ -22,6 +22,7 @@ def make_result(sent_at: dict[int, float], received_at: dict[int, float]) -> Tri
         received_at=received_at,
         risk_messages=0,
         event_messages=0,
+        listener_connect_failed=False,
     )
 
 
@@ -71,11 +72,31 @@ def test_aggregate_counts_http_failures_separately_from_dropped_ws_frames() -> N
         received_at={1: 100.05},
         risk_messages=0,
         event_messages=0,
+        listener_connect_failed=False,
     )
     level = aggregate(concurrency=1, results=[result], wall_duration_s=1.0)
 
     assert level.frames_failed == 3
     assert level.frames_dropped == 0
+
+
+def test_aggregate_counts_trips_whose_listener_never_connected() -> None:
+    connected = make_result(sent_at={1: 100.0}, received_at={1: 100.05})
+    never_connected = TripResult(
+        trip_id=uuid.uuid4(),
+        frames_sent=5,
+        frames_failed=0,
+        sent_at={1: 100.0, 2: 100.1, 3: 100.2, 4: 100.3, 5: 100.4},
+        received_at={},
+        risk_messages=0,
+        event_messages=0,
+        listener_connect_failed=True,
+    )
+    level = aggregate(concurrency=2, results=[connected, never_connected], wall_duration_s=1.0)
+
+    assert level.listener_connect_failures == 1
+    assert level.frames_dropped == 5
+    assert level.latencies_ms == pytest.approx([50.0])
 
 
 def test_throughput_is_frames_sent_over_wall_duration() -> None:
@@ -90,3 +111,41 @@ def test_throughput_is_zero_for_a_zero_duration_run() -> None:
         concurrency=1, wall_duration_s=0.0, frames_sent=0, frames_failed=0, frames_dropped=0
     )
     assert level.throughput_fps == 0.0
+
+
+def test_a_level_with_zero_successful_sends_is_collapsed() -> None:
+    level = LevelResult(
+        concurrency=20, wall_duration_s=32.0, frames_sent=0, frames_failed=6000, frames_dropped=0
+    )
+    assert level.collapsed is True
+    assert level.percentile(0.95) is None
+
+
+def test_a_level_where_every_frame_was_sent_but_none_arrived_is_collapsed() -> None:
+    """HTTP succeeded (frames_sent > 0) but every listener failed to connect,
+    so nothing was ever received -- still no usable latency sample."""
+    level = LevelResult(
+        concurrency=5, wall_duration_s=32.0, frames_sent=150, frames_failed=0, frames_dropped=150
+    )
+    assert level.collapsed is True
+
+
+def test_a_healthy_level_is_not_collapsed() -> None:
+    level = LevelResult(
+        concurrency=1,
+        wall_duration_s=32.0,
+        frames_sent=300,
+        frames_failed=0,
+        frames_dropped=0,
+        latencies_ms=[50.0, 60.0],
+    )
+    assert level.collapsed is False
+
+
+def test_an_empty_untried_level_is_not_collapsed() -> None:
+    """Distinguishes "nothing was attempted" from "everything failed" --
+    collapsed describes the second, not the first."""
+    level = LevelResult(
+        concurrency=1, wall_duration_s=0.0, frames_sent=0, frames_failed=0, frames_dropped=0
+    )
+    assert level.collapsed is False
