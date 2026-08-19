@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from io import TextIOWrapper
 from pathlib import Path
 from types import TracebackType
@@ -126,6 +127,19 @@ class HttpSink:
     would report a throughput number for traffic that never arrived. Raising is
     no better — one blip would end a long run. So failures are logged and
     counted, and `frames_failed` is part of what a benchmark reports.
+
+    ## `sent_at`
+
+    `TelemetryFrame.ts` is simulated time (see the contract's docstring) and a
+    headless run can produce it far faster or slower than a real clock would,
+    so it cannot stand in for a send timestamp. For a benchmark to measure
+    ingest-to-browser latency it needs to know when a frame actually left the
+    process; `sent_at` records that, in wall-clock seconds, keyed by
+    `frame.seq` (the producer's monotonic per-trip counter, and the same key
+    the backend echoes back on the WebSocket telemetry message). All frames in
+    a batch share one timestamp, taken immediately before the POST -- the
+    batch is one network round trip, and that call is what the latency number
+    is meant to capture.
     """
 
     def __init__(
@@ -149,6 +163,7 @@ class HttpSink:
         self.frames_failed = 0
         self.batches_sent = 0
         self.batches_failed = 0
+        self.sent_at: dict[int, float] = {}
 
     def open(self, meta: TripMeta) -> None:
         self._pending.clear()
@@ -156,6 +171,7 @@ class HttpSink:
         self.frames_failed = 0
         self.batches_sent = 0
         self.batches_failed = 0
+        self.sent_at.clear()
         logger.info(
             "Posting recording %s to backend trip %s at %.0f Hz",
             meta.trip_id,
@@ -178,6 +194,7 @@ class HttpSink:
             return
         batch, self._pending = self._pending, []
         payload = {"frames": [frame.model_dump(mode="json") for frame in batch]}
+        sent_wall_time = time.time()
         try:
             response = self._client.post(self._path, json=payload)
             response.raise_for_status()
@@ -190,6 +207,8 @@ class HttpSink:
         else:
             self.frames_sent += len(batch)
             self.batches_sent += 1
+            for frame in batch:
+                self.sent_at[frame.seq] = sent_wall_time
 
     def _note_failure(self, frame_count: int, detail: str) -> None:
         self.frames_failed += frame_count

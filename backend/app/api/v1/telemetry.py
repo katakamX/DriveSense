@@ -111,12 +111,18 @@ async def ingest_telemetry_batch(
     )
     ensure_started(trip_id, speed_limit_kph)
 
-    for row in rows:
+    for row, frame in zip(rows, payload.frames, strict=True):
         publish(
             trip_id,
             LiveMessage(
                 type="telemetry",
                 data={
+                    # `seq` (a producer-assigned monotonic counter, not a DB
+                    # column) rather than `recorded_at` is the latency-benchmark
+                    # correlation key: a timestamp round-tripped through
+                    # Postgres is not guaranteed to compare equal to the string
+                    # the producer sent.
+                    "seq": getattr(frame, "seq", None),
                     "recorded_at": row.recorded_at.isoformat(),
                     "speed_kph": row.speed_kph,
                     "accel_ms2": row.accel_ms2,

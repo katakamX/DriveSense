@@ -9,6 +9,7 @@ in `docs/m14-benchmark.md`.
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -194,6 +195,29 @@ def test_a_failed_batch_does_not_stall_the_ones_after_it() -> None:
     assert sink.frames_sent == 2
 
 
+def test_sent_at_records_wall_clock_time_per_frame_on_success() -> None:
+    recorder = Recorder()
+    sink = recorder.sink(batch_size=2)
+    sink.open(make_meta())
+    before = time.time()
+    sink.write(make_frame(0))
+    sink.write(make_frame(1))
+    after = time.time()
+
+    assert set(sink.sent_at) == {0, 1}
+    for sent in sink.sent_at.values():
+        assert before <= sent <= after
+
+
+def test_sent_at_omits_frames_from_a_failed_batch() -> None:
+    recorder = Recorder(status=500)
+    sink = recorder.sink(batch_size=1)
+    sink.open(make_meta())
+    sink.write(make_frame(0))
+
+    assert sink.sent_at == {}
+
+
 def test_open_resets_counters_between_runs() -> None:
     recorder = Recorder()
     sink = recorder.sink(batch_size=1)
@@ -205,6 +229,7 @@ def test_open_resets_counters_between_runs() -> None:
 
     assert sink.frames_sent == 0
     assert sink.batches_sent == 0
+    assert sink.sent_at == {}
 
 
 def test_rejects_a_nonsense_batch_size() -> None:
