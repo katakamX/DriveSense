@@ -85,14 +85,47 @@ with meaningful trade-offs are recorded separately as ADRs in [`adr/`](adr/).
 | Risk push to dashboard | 1 Hz |
 | Database writes | batched, ~1 Hz |
 
-Target end-to-end ingest → browser latency: **< 150 ms**, to be measured at
-Milestone 14 and reported with real numbers.
+Target end-to-end ingest → browser latency: **< 150 ms**. Measured at
+Milestone 14 (`bench/`, `python -m drivesense_bench`): real-time-paced
+simulated trips POST 10 Hz telemetry over HTTP while a real WebSocket client
+times each frame's round trip, ramping concurrent trips until something
+breaks. Run against both the local dev backend and the Docker Compose stack
+(single backend process, default-configured Postgres pool, on one
+16-core dev machine — not a production topology):
+
+| Concurrent trips | p50 (dev / docker) | p95 (dev / docker) | p99 (dev / docker) |
+| --- | --- | --- | --- |
+| 1  | 56.0 / 13.4 ms | 85.9 / 17.1 ms   | 109.7 / 58.5 ms  |
+| 2  | 15.6 / 16.5 ms | 80.0 / 32.3 ms   | 151.2 / 43.7 ms  |
+| 5  | 23.9 / 26.0 ms | 108.2 / 41.0 ms  | 214.2 / 57.7 ms  |
+| 10 | 32.7 / 51.3 ms | 116.4 / 89.8 ms  | 209.1 / 180.8 ms |
+| 20 | — | — (every request failed) | — |
+
+**Through 10 concurrent trips, p95 stays under the 150 ms target** (worst
+observed: 116.4 ms, dev). **At 20 concurrent trips the system does not
+degrade gracefully past the target — it collapses outright**: every
+telemetry POST fails. The cause, identical in both environments:
+
+```
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached,
+connection timed out, timeout 30.00
+```
+
+`app/db/session.py` creates the async engine with no `pool_size`/
+`max_overflow` override, so it runs on SQLAlchemy's defaults — 15
+connections total. Each concurrent trip needs one for its telemetry batch
+insert and another for its own 1 Hz risk tick; demand exceeds the pool
+somewhere between 10 and 20 concurrent trips, and requests queue for the
+pool's 30 s timeout before failing. This is a connection-pool configuration
+finding, not a dev-only artifact (the Docker Compose stack fails the same
+way), and not something this milestone fixes — tuning the pool is a future
+ops/perf decision.
 
 ## Milestones
 
-Milestones 1–10 are the core product. Real-time hardening and the remaining
-dashboard pages (11–12) are complete; OBD2 hardware, benchmarking and
-deployment polish follow and must not block the core.
+Milestones 1–10 are the core product. Real-time hardening, the remaining
+dashboard pages (11–12), and benchmarking (14) are complete; OBD2 hardware
+(13) and deployment polish (15) follow and must not block the core.
 
 | # | Milestone | Exit criterion |
 | --- | --- | --- |
@@ -109,7 +142,7 @@ deployment polish follow and must not block the core.
 | 11 | Real-time hardening | Survives backend restart without UI breakage |
 | 12 | Remaining dashboard pages | The seven pages enumerated in `M12_PLAN.md` functional ✅ |
 | 13 | OBD2 / ELM327 integration | Real device produces a trip |
-| 14 | Test hardening + benchmarking | Measured latency and throughput |
+| 14 | Test hardening + benchmarking | Measured latency and throughput ✅ |
 | 15 | Deployment polish + documentation | One-command startup, demo |
 
 ## Honest ML methodology

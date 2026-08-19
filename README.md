@@ -4,7 +4,7 @@
 driver-camera signals to detect driving events, classify driving behaviour, and
 produce an explainable real-time driver-risk score.
 
-> **Status: Milestones 1–12 of 15 complete.** Auth (Google OAuth + email/
+> **Status: Milestones 1–12 and 14 of 15 complete.** Auth (Google OAuth + email/
 > password login, sessions, role-gated routes) has also shipped, alongside the
 > milestone track — including the driver application flow (basic info, 13
 > required documents, submit for review) and the staff-side review queue
@@ -17,11 +17,15 @@ produce an explainable real-time driver-risk score.
 > state back at 1 Hz. The backend survives a restart without the browser
 > needing a reload (M11), and the dashboard pages — driver self-service, trip
 > detail, staff rosters, admin user/role management — are in place (M12).
+> Measured end-to-end latency (M14) is well under the 150 ms target through 10
+> concurrent trips, but the backend's default database connection pool
+> collapses ingest entirely at 20 — see
+> [Latency and throughput](#latency-and-throughput-m14) below.
 >
-> What is **not** done: there is no OBD2 integration (M13), latency has not
-> been benchmarked (M14), and **the trained model is not fit for production
-> use** — see [Model status](#model-status) below for the number that says so.
-> Nothing here claims functionality it does not have.
+> What is **not** done: there is no OBD2 integration (M13), and **the trained
+> model is not fit for production use** — see [Model status](#model-status)
+> below for the number that says so. Nothing here claims functionality it does
+> not have.
 
 ## What this is
 
@@ -331,15 +335,45 @@ table is in [docs/architecture.md](docs/architecture.md).
 | 11 | Real-time hardening — survives backend restart without UI breakage | ✅ |
 | 12 | Remaining dashboard pages | ✅ |
 | 13 | OBD2 / ELM327 integration | |
-| 14 | Test hardening + benchmarking | |
+| 14 | Test hardening + benchmarking | ✅ |
 | 15 | Deployment polish + documentation | |
 
 Milestones 9 and 10 were live-verified against a real trained model and a real
 webcam respectively, not only against tests.
 
+### Latency and throughput (M14)
+
 The end-to-end latency target (ingest → browser, < 150 ms) is stated in the
-architecture document but **has not been measured yet** — that is M14, and it
-will be reported with real numbers or not at all.
+architecture document. It's now measured — with [`bench/`](bench/), a load
+generator (`python -m drivesense_bench`) that POSTs real-time-paced 10 Hz
+telemetry over HTTP while a real WebSocket client times each frame's round
+trip, ramping concurrent trips until something breaks. Run against both the
+local dev backend and the Docker Compose stack, on one 16-core dev machine:
+
+| Concurrent trips | p95 latency (dev / docker) |
+| --- | --- |
+| 1  | 85.9 / 17.1 ms |
+| 2  | 80.0 / 32.3 ms |
+| 5  | 108.2 / 41.0 ms |
+| 10 | 116.4 / 89.8 ms |
+| 20 | every request failed |
+
+**p95 stays under the 150 ms target through 10 concurrent trips.** At 20 it
+doesn't degrade gracefully past the target — ingest collapses outright, in
+both environments, with the identical error:
+
+```
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached,
+connection timed out, timeout 30.00
+```
+
+The backend's async engine (`app/db/session.py`) runs on SQLAlchemy's
+default connection pool (15 connections total); each concurrent trip needs
+one for its telemetry insert and another for its 1 Hz risk tick, and demand
+outstrips the pool somewhere between 10 and 20 trips. Full numbers and the
+method are in [`docs/architecture.md`](docs/architecture.md#frequency-budget).
+Tuning the pool size is left to a future ops/perf pass — this milestone's
+job was to measure and report, not to fix.
 
 ## Repository layout
 
