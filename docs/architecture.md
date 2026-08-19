@@ -90,8 +90,9 @@ Milestone 14 and reported with real numbers.
 
 ## Milestones
 
-Milestones 1–10 are the core product. OBD2 hardware, the remaining pages,
-benchmarking and deployment polish follow and must not block the core.
+Milestones 1–10 are the core product. Real-time hardening and the remaining
+dashboard pages (11–12) are complete; OBD2 hardware, benchmarking and
+deployment polish follow and must not block the core.
 
 | # | Milestone | Exit criterion |
 | --- | --- | --- |
@@ -106,7 +107,7 @@ benchmarking and deployment polish follow and must not block the core.
 | 9 | Risk engine + explainability | Golden and property tests pass ✅ |
 | 10 | CV driver monitoring | 15 FPS standalone; degrades cleanly |
 | 11 | Real-time hardening | Survives backend restart without UI breakage |
-| 12 | Remaining dashboard pages | All eight pages functional |
+| 12 | Remaining dashboard pages | The seven pages enumerated in `M12_PLAN.md` functional ✅ |
 | 13 | OBD2 / ELM327 integration | Real device produces a trip |
 | 14 | Test hardening + benchmarking | Measured latency and throughput |
 | 15 | Deployment polish + documentation | One-command startup, demo |

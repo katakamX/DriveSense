@@ -4,7 +4,7 @@
 driver-camera signals to detect driving events, classify driving behaviour, and
 produce an explainable real-time driver-risk score.
 
-> **Status: Milestones 1–11 of 15 complete.** Auth (Google OAuth + email/
+> **Status: Milestones 1–12 of 15 complete.** Auth (Google OAuth + email/
 > password login, sessions, role-gated routes) has also shipped, alongside the
 > milestone track — including the driver application flow (basic info, 13
 > required documents, submit for review) and the staff-side review queue
@@ -14,13 +14,14 @@ produce an explainable real-time driver-risk score.
 > extracts features, runs a trained classifier and a rule-gated risk engine on
 > a 1 Hz tick, and pushes the result to a React dashboard over a WebSocket. A
 > separate CV process estimates drowsiness from a real webcam and posts driver
-> state back at 1 Hz. The backend now survives a restart without the browser
-> needing a reload (M11).
+> state back at 1 Hz. The backend survives a restart without the browser
+> needing a reload (M11), and the dashboard pages — driver self-service, trip
+> detail, staff rosters, admin user/role management — are in place (M12).
 >
-> What is **not** done: six of the eight dashboard pages do not exist (M12),
-> there is no OBD2 integration (M13), and **the trained model is not fit for
-> production use** — see [Model status](#model-status) below for the number
-> that says so. Nothing here claims functionality it does not have.
+> What is **not** done: there is no OBD2 integration (M13), latency has not
+> been benchmarked (M14), and **the trained model is not fit for production
+> use** — see [Model status](#model-status) below for the number that says so.
+> Nothing here claims functionality it does not have.
 
 ## What this is
 
@@ -97,11 +98,31 @@ docker compose exec backend alembic upgrade head
 | Backend API | http://localhost:8000/api/v1 |
 | API docs | http://localhost:8000/docs |
 
-Pages so far: `/login` (email/password or Google), the Dashboard at `/`, Live
-Drive at `/trips/:tripId/live` — the one that renders real live data off the
-WebSocket — and `/driver-monitor`. Create a driver, a vehicle and a trip
-through the API (or `/docs`), point the simulator at that trip, then open its
-Live Drive URL.
+Pages:
+
+| Route | Page | Who sees it |
+| --- | --- | --- |
+| `/` | Role fork — renders the staff Dashboard, or redirects a driver to `/dashboard` | any |
+| `/login`, `/signup`, `/employee/login` | Email/password or Google sign-in | unauthenticated |
+| `/dashboard` | Driver self-service — my trips, my risk, my application status | driver |
+| `/trips/:tripId` | Trip detail — risk-window breakdown, events, route | staff, or the trip's own driver |
+| `/trips/:tripId/live` | Live Drive — real live data off the WebSocket | any |
+| `/become-a-driver` | Driver application (basic info + 13 documents) | any |
+| `/driver-monitor` | Browser-camera driver monitor (ADR 0008) | any |
+| `/employee/review`, `/employee/review/:driverId` | Application review queue and detail | staff |
+| `/employee/drivers`, `/employee/vehicles`, `/employee/trips` | Rosters and trips overview, filterable/sortable | staff |
+| `/admin/users` | User/role management (promote/demote) | admin |
+| `/admin/system` | Risk engine + model version | admin |
+
+"Who sees it" describes what the **backend** enforces. Apart from `/`, which
+forks on role, the routes are not guarded client-side and the nav bar is not
+role-filtered: a driver can navigate to `/admin/users` and will get an error
+from the API rather than a redirect. Authorisation is enforced server-side, in
+one place — the pages just render what the API is willing to return. Role-aware
+navigation is a UI gap, not an access-control one.
+
+Create a driver, a vehicle and a trip through the API (or `/docs`), point the
+simulator at that trip, then open its Live Drive URL.
 
 ### Vehicle simulator
 
@@ -227,9 +248,11 @@ docs at `/docs`.
 | --- | --- | --- |
 | `GET` | `/health` | Liveness. Never touches external systems. |
 | `GET` | `/health/ready` | Readiness. Verifies database connectivity; returns `503` when unreachable. |
-| `POST` `GET` `PATCH` `DELETE` | `/drivers`, `/drivers/{id}` | Driver CRUD. |
-| `POST` `GET` `PATCH` `DELETE` | `/vehicles`, `/vehicles/{id}` | Vehicle CRUD. |
-| `POST` `GET` `PATCH` `DELETE` | `/trips`, `/trips/{id}` | Trip CRUD. `PATCH` ends a trip, which flushes pending risk rows and stamps the trip's risk summary in one transaction. |
+| `POST` `GET` `PATCH` `DELETE` | `/drivers`, `/drivers/{id}` | Driver CRUD. `GET` filters by `name`, `code`, `status`. |
+| `POST` `GET` `PATCH` `DELETE` | `/vehicles`, `/vehicles/{id}` | Vehicle CRUD. `GET` filters by `make`. |
+| `POST` `GET` `PATCH` `DELETE` | `/trips`, `/trips/{id}` | Trip CRUD. `GET` filters by `driver_id`, `vehicle_id`, `status` and sorts by `sort=risk_score\|-risk_score` (never-scored trips always last). `PATCH` ends a trip, which flushes pending risk rows and stamps the trip's risk summary in one transaction. |
+| `GET` | `/trips/me` | The current user's own trips, resolved via `Driver.user_id`. Self-service — never returns another driver's data. |
+| `GET` | `/trips/{id}/risk-windows`, `/trips/{id}/events`, `/trips/{id}/telemetry` | Read-only trip detail: per-window risk breakdown, driving events, route/telemetry points. |
 | `POST` | `/trips/{trip_id}/telemetry/batch` | Batched telemetry ingest. Feeds the ring buffer, event detection and the inference tick. |
 | `POST` | `/ingest/driver-state` | Driver state from the CV process. `trip_id` travels in the payload, not the path — see ADR 0002. |
 | `WS` | `/trips/{trip_id}/live` | Live stream. Envelope is `{ type, data }` with `type` one of `telemetry`, `event`, `risk`, `driver_state`. Closes `4404` for an unknown trip. |
@@ -243,14 +266,29 @@ docs at `/docs`.
 | `GET` | `/driver-review/applications`, `/driver-review/applications/{id}` | Staff review queue and one application's full detail, filterable by status. |
 | `GET` | `/driver-review/applications/{id}/documents/{id}/file` | Stream one uploaded document's bytes back to a reviewer. |
 | `POST` | `/driver-review/applications/{id}/verify`, `/driver-review/applications/{id}/reject` | Decide a `pending` application. |
+| `GET` `PATCH` | `/users`, `/users/{id}/role` | Admin-only user list and role promote/demote, validated against `UserRole`. |
+| `GET` | `/admin/system-health` | Admin-only. Current risk engine version and loaded model version (artefact fingerprint, or rule-only when no artefact is present). |
 
-`/drivers`, `/vehicles` and everything under `/driver-review` require the
-`employee`/`admin` role (`require_staff`); everything else above is open to
-any authenticated `user`, or unauthenticated where noted.
+Three gates, in `app/core/deps.py`:
 
-There are deliberately **no read endpoints for telemetry frames, driving events
-or risk windows yet** — the live path is the WebSocket, and the historical read
-surface arrives with the dashboard pages in M12.
+- `get_current_user` — any logged-in user. Self-service routes (`/trips/me`,
+  `/driver-applications/me`) use this and resolve the caller's own records via
+  `Driver.user_id`, so they can never return another user's data.
+- `require_staff` — `employee` or `admin`. Gates `/drivers`, `/vehicles`,
+  `/trips` and everything under `/driver-review`.
+- `require_admin` — `admin` only. Gates `/users` and `/admin`, so an employee
+  can review applications but cannot promote anyone.
+
+The trip-detail routes (`/trips/{id}/risk-windows`, `/events`, `/telemetry`)
+are the one mixed case: staff pass unconditionally, and otherwise the caller
+must own the trip's driver record. A driver reading another driver's trip gets
+`404`, not `403` — the same "wrong owner reads as missing" answer the document
+endpoints give, so the API never confirms that a trip it will not show you
+exists.
+
+The historical read surface for driving events and risk windows is the
+trip-detail routes above (M12). The **live** path remains the WebSocket; there
+is still no bulk/cross-trip read endpoint for raw telemetry frames.
 
 ## Model status
 
@@ -291,7 +329,7 @@ table is in [docs/architecture.md](docs/architecture.md).
 | 9 | Risk engine + explainability | ✅ |
 | 10 | CV driver monitoring | ✅ |
 | 11 | Real-time hardening — survives backend restart without UI breakage | ✅ |
-| 12 | Remaining dashboard pages | |
+| 12 | Remaining dashboard pages | ✅ |
 | 13 | OBD2 / ELM327 integration | |
 | 14 | Test hardening + benchmarking | |
 | 15 | Deployment polish + documentation | |
@@ -316,8 +354,10 @@ backend/     FastAPI application, database layer, pipeline, risk engine
   app/core/live/        In-process WebSocket fan-out (ADR 0003)
   app/ml/               Artefact loader and inference; no scikit-learn at runtime
   app/core/sessions.py, oauth.py   Session cookie + Google OAuth auth
-frontend/    React dashboard — Login, Dashboard, Live Drive, Driver Monitor,
-             Driver Application, Employee Login/Review pages
+frontend/    React dashboard — Login/Signup, Dashboard, Driver Dashboard,
+             Trip Detail, Live Drive, Driver Monitor, Driver Application,
+             Employee Login/Review, Employee rosters (drivers, vehicles,
+             trips), Admin Users, Admin System
 ml/          Offline training pipeline, artefacts and evaluation reports
 cv/          Driver-monitoring service, separate process (ADR 0002)
 docs/        Architecture, model card and ADRs
