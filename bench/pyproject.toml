@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "drivesense-bench"
+version = "0.1.0"
+description = "M14 latency/throughput benchmark harness for DriveSense"
+requires-python = ">=3.12"
+dependencies = [
+    # The receive side of the ingest -> browser latency measurement: a real
+    # network WebSocket client against the deployed backend, not Starlette's
+    # in-process TestClient the backend's own tests use.
+    "websockets>=13.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7", "mypy>=1.13"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["drivesense_bench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["drivesense_bench"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
