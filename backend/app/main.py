@@ -33,6 +33,7 @@ from app.api.v1 import (
     ingest,
     live,
     telemetry,
+    trip_detail,
     trips,
     users,
     vehicles,
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     # matches routes in registration order, not by specificity).
     v1.include_router(driver_dashboard.router)
     v1.include_router(trips.router)
+    v1.include_router(trip_detail.router)
     v1.include_router(telemetry.router)
     v1.include_router(ingest.router)
     v1.include_router(live.router)
