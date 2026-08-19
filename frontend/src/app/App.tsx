@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { DriverApplication } from '@/pages/DriverApplication';
 import { DriverDashboard } from '@/pages/DriverDashboard';
 import { DriverMonitor } from '@/pages/DriverMonitor';
+import { EmployeeDrivers } from '@/pages/EmployeeDrivers';
 import { EmployeeLogin } from '@/pages/EmployeeLogin';
 import { EmployeeReviewDetail, EmployeeReviewQueue } from '@/pages/EmployeeReview';
 import { Home } from '@/pages/Home';
@@ -22,6 +23,7 @@ export function App() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/employee/login" element={<EmployeeLogin />} />
           <Route path="/employee/review" element={<EmployeeReviewQueue />} />
+          <Route path="/employee/drivers" element={<EmployeeDrivers />} />
           <Route path="/employee/review/:driverId" element={<EmployeeReviewDetail />} />
           <Route path="/become-a-driver" element={<DriverApplication />} />
           <Route path="/trips/:tripId/live" element={<LiveDrive />} />
