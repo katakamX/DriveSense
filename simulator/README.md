@@ -21,6 +21,27 @@ python -m drivesense_sim --stall         # enable engine stalling (off by defaul
 python -m drivesense_sim --noise         # enable sensor noise (off by default)
 ```
 
+### Posting to the backend
+
+`--post-to` swaps the JSONL sink for `HttpSink`, which batches frames to
+`POST /api/v1/trips/{trip_id}/telemetry/batch`:
+
+```bash
+python -m drivesense_sim --headless --drive normal --duration 30 \
+    --post-to http://localhost:8000 \
+    --backend-trip-id 005469ab-e9e5-4165-b1b2-684f79bb6998
+```
+
+`--backend-trip-id` is a **backend trip UUID**, not the recording id — the row
+has to exist already, created by staff via `POST /trips` with a driver and a
+vehicle. The two ids are unrelated and neither can be derived from the other.
+
+A headless run is not paced in real time: it produces frames as fast as the CPU
+allows, so thirty seconds of simulated driving posts in about five wall-clock
+seconds. That is what makes bulk dataset generation practical, but it means the
+backend's 1 Hz windowing tick sees far fewer seconds than the telemetry claims,
+and a run like this cannot be used to measure latency.
+
 ## Controls
 
 | Key | Action |

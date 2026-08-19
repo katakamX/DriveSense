@@ -13,6 +13,10 @@ dependencies = [
     "drivesense-contracts>=0.1.0",
     "pydantic>=2.9",
     "pygame-ce>=2.5",
+    # HttpSink (drivesense_sim.telemetry.sinks) posts to the backend's ingest
+    # endpoint. Same client the CV process already uses, so the two producers
+    # do not disagree about timeouts and error handling.
+    "httpx>=0.27",
 ]
 
 [project.scripts]

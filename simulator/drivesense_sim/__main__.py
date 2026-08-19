@@ -5,18 +5,26 @@ python -m drivesense_sim --record                     interactive, recording on
 python -m drivesense_sim --headless                   scripted demo drive, no window
 python -m drivesense_sim --headless --drive calm      a labelled profile drive
 python -m drivesense_sim --headless --drive high_risk --variant c --seed 7
+python -m drivesense_sim --headless --post-to http://localhost:8000 --backend-trip-id UUID
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
+from drivesense_contracts import TelemetrySink
 from drivesense_sim.config import SimConfig, VehicleSpec
 from drivesense_sim.drives import PROFILE_DRIVES, get_drive, variants_for
 from drivesense_sim.input.providers import ScriptedInputProvider
 from drivesense_sim.source import SimulatorTelemetrySource
-from drivesense_sim.telemetry.sinks import DEFAULT_RECORDING_DIR, JsonlSink
+from drivesense_sim.telemetry.sinks import (
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_RECORDING_DIR,
+    HttpSink,
+    JsonlSink,
+)
 
 DRIVE_CHOICES = ["demo", *sorted(PROFILE_DRIVES)]
 
@@ -58,6 +66,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="sensor-noise seed; implies --noise when given",
     )
+    parser.add_argument(
+        "--post-to",
+        default=None,
+        metavar="BASE_URL",
+        help="POST frames to a backend (e.g. http://localhost:8000) instead of writing JSONL",
+    )
+    parser.add_argument(
+        "--backend-trip-id",
+        default=None,
+        metavar="UUID",
+        help="existing backend trip to post into; required with --post-to",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help=f"frames per POST when using --post-to (default: {DEFAULT_BATCH_SIZE})",
+    )
     return parser
 
 
@@ -91,14 +117,29 @@ def run_headless(args: argparse.Namespace) -> int:
     trip_id = args.trip_id or default_trip_id(args.drive, args.variant, args.seed)
 
     meta = source.start(trip_id=trip_id)
-    sink = JsonlSink(args.out)
-    sink.open(meta)
-    try:
-        for frame in source.frames():
-            sink.write(frame)
-    finally:
-        sink.close()
-        source.stop()
+    sink: HttpSink | JsonlSink = (
+        HttpSink(args.post_to, args.backend_trip_id, batch_size=args.batch_size)
+        if args.post_to
+        else JsonlSink(args.out)
+    )
+
+    def pump(destination: TelemetrySink) -> None:
+        destination.open(meta)
+        try:
+            for frame in source.frames():
+                destination.write(frame)
+        finally:
+            destination.close()
+            source.stop()
+
+    pump(sink)
+
+    if isinstance(sink, HttpSink):
+        print(f"Posted {sink.frames_sent} frames in {sink.batches_sent} batches to {args.post_to}")
+        if sink.frames_failed:
+            print(f"FAILED to post {sink.frames_failed} frames ({sink.batches_failed} batches)")
+            return 1
+        return 0
 
     print(f"Wrote {sink.frames_written} frames to {sink.path}")
     print(f"Metadata: {sink.meta_path}")
@@ -107,6 +148,19 @@ def run_headless(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.post_to and not args.backend_trip_id:
+        print("error: --post-to requires --backend-trip-id")
+        return 2
+    if args.post_to and not args.headless:
+        # The interactive app owns its own sink wiring; --post-to would be
+        # silently ignored there, which is worse than refusing it.
+        print("error: --post-to is only supported with --headless")
+        return 2
+    if args.post_to:
+        # Without this the sink's warnings about failed POSTs go nowhere and a
+        # run that dropped every batch looks identical to one that worked.
+        logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     if args.drive != "demo" and args.variant not in variants_for(args.drive):
         available = ", ".join(variants_for(args.drive))
