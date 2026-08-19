@@ -60,6 +60,20 @@ def test_list_drivers_filter_by_name(client: TestClient) -> None:
     assert len(body) == 1
 
 
+def test_list_drivers_filter_by_status(client: TestClient) -> None:
+    _create_driver(client, license_number="LN-500")
+
+    response = client.get("/api/v1/drivers", params={"status": "draft"})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) >= 1
+    assert all(d["status"] == "draft" for d in body)
+
+    response = client.get("/api/v1/drivers", params={"status": "verified"})
+    assert response.status_code == 200
+    assert all(d["license_number"] != "LN-500" for d in response.json())
+
+
 def test_get_driver_by_id(client: TestClient) -> None:
     created = _create_driver(client, license_number="LN-400")
 

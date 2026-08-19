@@ -58,6 +58,7 @@ async def list_drivers(
     offset: int = Query(0, ge=0),
     name: str | None = Query(None),
     code: str | None = Query(None, description="Exact match on driver_code, case-insensitive"),
+    status_: str | None = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
 ) -> list[Driver]:
     stmt = select(Driver).options(selectinload(Driver.current_vehicle))
@@ -65,6 +66,8 @@ async def list_drivers(
         stmt = stmt.where(Driver.name == name)
     if code is not None:
         stmt = stmt.where(Driver.driver_code == code.upper())
+    if status_ is not None:
+        stmt = stmt.where(Driver.status == status_)
     stmt = stmt.order_by(Driver.created_at).limit(limit).offset(offset)
     result = await db.execute(stmt)
     return list(result.scalars().all())
