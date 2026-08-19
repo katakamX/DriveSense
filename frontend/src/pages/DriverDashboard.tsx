@@ -133,6 +133,9 @@ function MyTripsPanel({ trips }: { trips: MyTrip[] }) {
                   )}
                 </td>
                 <td className="px-5 py-3 text-right">
+                  <Link to={`/trips/${trip.id}`} className="text-accent hover:underline">
+                    Details →
+                  </Link>{' '}
                   <Link to={`/trips/${trip.id}/live`} className="text-accent hover:underline">
                     Live Drive →
                   </Link>

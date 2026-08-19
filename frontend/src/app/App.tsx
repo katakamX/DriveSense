@@ -15,6 +15,7 @@ import { Home } from '@/pages/Home';
 import { LiveDrive } from '@/pages/LiveDrive';
 import { Login } from '@/pages/Login';
 import { Signup } from '@/pages/Signup';
+import { TripDetail } from '@/pages/TripDetail';
 
 export function App() {
   return (
@@ -34,6 +35,7 @@ export function App() {
           <Route path="/admin/system" element={<AdminSystem />} />
           <Route path="/employee/review/:driverId" element={<EmployeeReviewDetail />} />
           <Route path="/become-a-driver" element={<DriverApplication />} />
+          <Route path="/trips/:tripId" element={<TripDetail />} />
           <Route path="/trips/:tripId/live" element={<LiveDrive />} />
           <Route path="/driver-monitor" element={<DriverMonitor />} />
         </Routes>

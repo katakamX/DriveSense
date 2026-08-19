@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
@@ -89,6 +90,7 @@ export function EmployeeTrips() {
                 <th className="px-5 py-3 font-medium">Status</th>
                 <th className="px-5 py-3 font-medium">Started</th>
                 <th className="px-5 py-3 font-medium">Risk</th>
+                <th className="px-5 py-3 font-medium" aria-label="Actions" />
               </tr>
             </thead>
             <tbody>
@@ -117,6 +119,11 @@ export function EmployeeTrips() {
                           {trip.risk_score !== null ? trip.risk_score.toFixed(1) : trip.risk_band}
                         </Badge>
                       )}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <Link to={`/trips/${trip.id}`} className="text-accent hover:underline">
+                        Details →
+                      </Link>
                     </td>
                   </tr>
                 );
