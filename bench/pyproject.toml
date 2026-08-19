@@ -12,7 +12,17 @@ dependencies = [
     # network WebSocket client against the deployed backend, not Starlette's
     # in-process TestClient the backend's own tests use.
     "websockets>=13.0",
+    # The producer side (SimulatorTelemetrySource + HttpSink) and its
+    # real-time frame pacing.
+    "drivesense-simulator>=0.1.0",
+    # `app.db.session` / `app.db.models` for direct trip-fixture setup (see
+    # drivesense_bench/setup.py) -- reuses the backend's own schema and engine
+    # rather than duplicating either.
+    "drivesense-backend>=0.1.0",
 ]
+
+[project.scripts]
+drivesense-bench = "drivesense_bench.__main__:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7", "mypy>=1.13"]
@@ -32,7 +42,7 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["drivesense_bench"]
+known-first-party = ["drivesense_bench", "drivesense_contracts", "drivesense_sim", "app"]
 
 [tool.mypy]
 python_version = "3.12"

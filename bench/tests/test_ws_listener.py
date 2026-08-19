@@ -14,8 +14,8 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+import websockets
 
-from drivesense_bench import ws_listener
 from drivesense_bench.ws_listener import LiveTripListener
 
 
@@ -84,7 +84,7 @@ async def test_run_processes_messages_then_stops_on_the_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     messages = [json.dumps({"type": "telemetry", "data": {"seq": 42}})]
-    monkeypatch.setattr(ws_listener.websockets, "connect", lambda url: ScriptedFakeSocket(messages))
+    monkeypatch.setattr(websockets, "connect", lambda url: ScriptedFakeSocket(messages))
 
     listener = LiveTripListener()
     stop = asyncio.Event()
