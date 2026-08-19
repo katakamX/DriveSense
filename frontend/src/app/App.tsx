@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import { AppShell } from '@/components/layout/AppShell';
+import { AdminUsers } from '@/pages/AdminUsers';
 import { DriverApplication } from '@/pages/DriverApplication';
 import { DriverDashboard } from '@/pages/DriverDashboard';
 import { DriverMonitor } from '@/pages/DriverMonitor';
@@ -28,6 +29,7 @@ export function App() {
           <Route path="/employee/drivers" element={<EmployeeDrivers />} />
           <Route path="/employee/vehicles" element={<EmployeeVehicles />} />
           <Route path="/employee/trips" element={<EmployeeTrips />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/employee/review/:driverId" element={<EmployeeReviewDetail />} />
           <Route path="/become-a-driver" element={<DriverApplication />} />
           <Route path="/trips/:tripId/live" element={<LiveDrive />} />
