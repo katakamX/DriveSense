@@ -43,6 +43,9 @@ export function AppShell({ children }: AppShellProps) {
             <NavLink to="/employee/vehicles" className={navLinkClassName}>
               Vehicles
             </NavLink>
+            <NavLink to="/employee/trips" className={navLinkClassName}>
+              Trips
+            </NavLink>
           </nav>
         </div>
       </header>

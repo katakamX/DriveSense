@@ -7,6 +7,7 @@ import { DriverMonitor } from '@/pages/DriverMonitor';
 import { EmployeeDrivers } from '@/pages/EmployeeDrivers';
 import { EmployeeLogin } from '@/pages/EmployeeLogin';
 import { EmployeeReviewDetail, EmployeeReviewQueue } from '@/pages/EmployeeReview';
+import { EmployeeTrips } from '@/pages/EmployeeTrips';
 import { EmployeeVehicles } from '@/pages/EmployeeVehicles';
 import { Home } from '@/pages/Home';
 import { LiveDrive } from '@/pages/LiveDrive';
@@ -26,6 +27,7 @@ export function App() {
           <Route path="/employee/review" element={<EmployeeReviewQueue />} />
           <Route path="/employee/drivers" element={<EmployeeDrivers />} />
           <Route path="/employee/vehicles" element={<EmployeeVehicles />} />
+          <Route path="/employee/trips" element={<EmployeeTrips />} />
           <Route path="/employee/review/:driverId" element={<EmployeeReviewDetail />} />
           <Route path="/become-a-driver" element={<DriverApplication />} />
           <Route path="/trips/:tripId/live" element={<LiveDrive />} />
