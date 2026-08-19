@@ -55,7 +55,7 @@ async def list_applications(
             .where(DocumentUpload.driver_id.in_(driver_ids))
             .group_by(DocumentUpload.driver_id)
         )
-        counts = dict((await db.execute(count_stmt)).all())
+        counts = dict(tuple(row) for row in (await db.execute(count_stmt)).all())
 
     return [
         DriverApplicationSummary(

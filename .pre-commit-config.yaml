@@ -13,6 +13,12 @@ repos:
         language: system
         files: ^backend/.*\.py$
         pass_filenames: false
+      - id: backend-mypy
+        name: backend mypy
+        entry: cmd /c "cd backend && .venv\\Scripts\\python.exe -m mypy app"
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
       - id: frontend-eslint
         name: frontend eslint
         entry: npm --prefix frontend run lint
