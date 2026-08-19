@@ -121,7 +121,10 @@ export function EmployeeTrips() {
                       )}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <Link to={`/trips/${trip.id}`} className="text-accent hover:underline">
+                      <Link
+                        to={`/trips/${trip.id}`}
+                        className="text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
+                      >
                         Details →
                       </Link>
                     </td>

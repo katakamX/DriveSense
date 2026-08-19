@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 @import './tokens.css';
 
 @tailwind base;
@@ -11,11 +12,46 @@
 
   body {
     @apply bg-surface-base text-content-primary antialiased;
-    font-feature-settings: 'cv11', 'ss01';
   }
 
-  /* Telemetry readouts must not jitter as digits change. */
+  /**
+   * Measurements are monospaced, tabular and right-aligned; prose is
+   * proportional and left-aligned. Applied without exception, so figures form
+   * scannable vertical columns instead of ragged ones.
+   *
+   * Telemetry readouts must not jitter as digits change, which is what
+   * tabular-nums buys: every digit occupies the same advance width.
+   */
   .tabular {
+    font-family: theme('fontFamily.mono');
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /**
+   * Keyboard focus stays achromatic, which is what keeps "colour means state"
+   * intact — a focus ring is not a reading. Bright enough to clear WCAG 2.4.11
+   * against every surface in the palette.
+   */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* Only suppress the ring for pointer users, never for keyboard ones. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

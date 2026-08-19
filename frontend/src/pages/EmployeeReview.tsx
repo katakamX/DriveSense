@@ -148,7 +148,7 @@ function DocumentGrid({ application }: { application: DriverApplicationRead }) {
                 href={url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-2 inline-block text-sm text-accent hover:underline"
+                className="mt-2 inline-block text-sm text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
               >
                 Open file
               </a>
@@ -203,7 +203,7 @@ export function EmployeeReviewDetail() {
         <button
           type="button"
           onClick={() => void navigate('/employee/review')}
-          className="mt-4 text-sm text-accent hover:underline"
+          className="mt-4 text-sm text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
         >
           Back to queue
         </button>

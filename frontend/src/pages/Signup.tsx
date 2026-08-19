@@ -117,7 +117,10 @@ export function Signup() {
 
         <p className="mt-4 text-center text-sm text-content-secondary">
           Already have an account?{' '}
-          <Link to="/login" className="text-accent hover:underline">
+          <Link
+            to="/login"
+            className="text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
+          >
             Sign in
           </Link>
         </p>

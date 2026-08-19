@@ -1,30 +1,77 @@
 /**
  * DriveSense design tokens.
  *
- * The product is a dark-first automotive instrument surface: a near-black
- * ground, a small number of elevated surfaces, one accent colour, and a
- * four-step risk scale that maps directly to the risk engine's levels.
- * Risk is never communicated by colour alone — components pair these with
- * text labels for accessibility.
+ * ## Colour is a reading, never decoration
+ *
+ * There is no brand accent in this product. Chrome — buttons, links, focus
+ * rings, icons, nav — is achromatic. The only saturated colour on screen
+ * belongs to the state scale below, whose primary consumer is the risk engine's
+ * band output. If something here is coloured, it is reporting a state, not
+ * decorating a surface.
+ *
+ * That rule is only affordable because colour has a real job in this product.
+ * It would not survive in an application whose primary button needed to be
+ * brand-blue.
+ *
+ * ## Two anchors, everything else derived
+ *
+ * `--ink` and `--paper` are the only two neutral decisions. Every surface,
+ * border and text grey is mixed from them, so the neutrals cannot drift apart
+ * into a dozen hand-picked values that no longer agree.
+ *
+ * ## The state scale
+ *
+ * The four risk bands (`schema.py` BAND_ORDER: CALM / NORMAL / AGGRESSIVE /
+ * HIGH_RISK) render as teal / neutral / orange / vermillion — a diverging
+ * scale centred on NORMAL, because normal driving is the absence of signal and
+ * should not spend colour. Steps are kept perceptually even, matching the
+ * engine's deliberately even numeric spacing (it does not claim the step from
+ * AGGRESSIVE to HIGH_RISK is worse than CALM to NORMAL, so the palette must
+ * not claim it either).
+ *
+ * The first stops run on a blue/yellow axis rather than red/green, which
+ * survives the two most common forms of colour blindness. Risk is never
+ * encoded by colour alone — bands always carry their text label.
  */
 
 :root {
-  --surface-base: #08090c;
-  --surface-raised: #0f1116;
-  --surface-overlay: #161922;
+  /* --- The two anchors ---------------------------------------------------- */
+  /* Near-black with a deliberate blue cast: glass over an instrument, not a
+     generic "dark mode" grey. */
+  --ink: #070a0f;
+  /* Cool off-white. Never pure #fff, which glares against the ink at night. */
+  --paper: #dce3ed;
 
-  --border-subtle: #1e222c;
-  --border-strong: #2b3040;
+  /* --- Surfaces: ink, lifted in even steps -------------------------------- */
+  --surface-base: var(--ink);
+  --surface-raised: #0d1219;
+  --surface-overlay: #141a24;
 
-  --content-primary: #e8eaf0;
-  --content-secondary: #9aa1b1;
-  --content-muted: #5f6675;
+  /* --- Borders and text: paper mixed down into ink ------------------------ */
+  --border-subtle: color-mix(in srgb, var(--paper) 10%, var(--ink));
+  --border-strong: color-mix(in srgb, var(--paper) 20%, var(--ink));
 
-  --accent: #22d3ee;
-  --accent-muted: #0e7490;
+  --content-primary: var(--paper);
+  --content-secondary: color-mix(in srgb, var(--paper) 62%, var(--ink));
+  --content-muted: color-mix(in srgb, var(--paper) 38%, var(--ink));
 
-  --risk-low: #34d399;
-  --risk-moderate: #fbbf24;
-  --risk-high: #fb923c;
-  --risk-critical: #f43f5e;
+  /* --- Interactive chrome: achromatic by policy --------------------------- */
+  /* Kept under the `accent` name so the whole app inherits it, but it is no
+     longer a colour — it is simply the brightest neutral. Buttons become
+     paper-on-ink; links rely on underline rather than hue. */
+  --accent: #f0f4fa;
+  --accent-muted: color-mix(in srgb, var(--paper) 30%, var(--ink));
+
+  /* --- State scale -------------------------------------------------------- */
+  /* CALM, and every settled/verified/connected state. */
+  --risk-low: #3fb8a4;
+  /* In-flight states — pending review, in-progress trip, reconnecting socket.
+     Not used by any risk band. */
+  --risk-moderate: #c9a227;
+  /* AGGRESSIVE. */
+  --risk-high: #de7a3c;
+  /* HIGH_RISK. Breaks the ramp into vermillion rather than continuing it,
+     because the engine gates this band behind the deterministic rule layer —
+     it rests on a different kind of evidence, not merely more of the same. */
+  --risk-critical: #e2564a;
 }

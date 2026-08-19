@@ -45,7 +45,10 @@ function ApplicationStatusPanel({ application }: { application: DriverApplicatio
       <Panel className="p-6">
         <h2 className="text-sm font-medium text-content-secondary">Application status</h2>
         <p className="mt-2 text-content-primary">You haven&apos;t applied to drive yet.</p>
-        <Link to="/become-a-driver" className="mt-3 inline-block text-accent hover:underline">
+        <Link
+          to="/become-a-driver"
+          className="mt-3 inline-block text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
+        >
           Start an application →
         </Link>
       </Panel>
@@ -61,7 +64,10 @@ function ApplicationStatusPanel({ application }: { application: DriverApplicatio
         </Badge>
       </div>
       {application.status !== 'verified' && (
-        <Link to="/become-a-driver" className="mt-3 inline-block text-accent hover:underline">
+        <Link
+          to="/become-a-driver"
+          className="mt-3 inline-block text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
+        >
           View application →
         </Link>
       )}
@@ -133,10 +139,16 @@ function MyTripsPanel({ trips }: { trips: MyTrip[] }) {
                   )}
                 </td>
                 <td className="px-5 py-3 text-right">
-                  <Link to={`/trips/${trip.id}`} className="text-accent hover:underline">
+                  <Link
+                    to={`/trips/${trip.id}`}
+                    className="text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
+                  >
                     Details →
                   </Link>{' '}
-                  <Link to={`/trips/${trip.id}/live`} className="text-accent hover:underline">
+                  <Link
+                    to={`/trips/${trip.id}/live`}
+                    className="text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
+                  >
                     Live Drive →
                   </Link>
                 </td>

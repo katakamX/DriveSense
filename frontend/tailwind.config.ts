@@ -37,8 +37,24 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        /**
+         * One superfamily, three jobs. Body and data share a skeleton and
+         * metrics, which is what stops a table mixing prose and figures from
+         * looking assembled out of two unrelated systems — the reason this is
+         * Plex Mono rather than JetBrains Mono, whose sans is not this sans.
+         *
+         * `display` is the condensed cut, used for headers and the hero score
+         * only. Condensed rather than a fourth family: it supplies the tension
+         * a display face needs without a third webfont download.
+         */
+        sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        display: ['"IBM Plex Sans Condensed"', '"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
+      },
+      letterSpacing: {
+        /* Display headers are set tight; instrument labelling is set wide. */
+        display: '-0.015em',
+        label: '0.12em',
       },
     },
   },

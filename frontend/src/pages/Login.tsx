@@ -83,7 +83,10 @@ export function Login() {
 
         <p className="mt-4 text-center text-sm text-content-secondary">
           No account?{' '}
-          <Link to="/signup" className="text-accent hover:underline">
+          <Link
+            to="/signup"
+            className="text-content-primary underline decoration-content-muted underline-offset-4 transition-colors hover:decoration-content-primary"
+          >
             Sign up
           </Link>
         </p>
