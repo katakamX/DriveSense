@@ -49,6 +49,9 @@ export function AppShell({ children }: AppShellProps) {
             <NavLink to="/admin/users" className={navLinkClassName}>
               Users
             </NavLink>
+            <NavLink to="/admin/system" className={navLinkClassName}>
+              System
+            </NavLink>
           </nav>
         </div>
       </header>
