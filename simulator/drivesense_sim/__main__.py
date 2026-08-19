@@ -84,6 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_BATCH_SIZE,
         help=f"frames per POST when using --post-to (default: {DEFAULT_BATCH_SIZE})",
     )
+    parser.add_argument(
+        "--realtime",
+        action="store_true",
+        help="pace frames at telemetry_hz instead of running as fast as the CPU allows "
+        "(for latency measurement against a live backend)",
+    )
     return parser
 
 
@@ -126,7 +132,7 @@ def run_headless(args: argparse.Namespace) -> int:
     def pump(destination: TelemetrySink) -> None:
         destination.open(meta)
         try:
-            for frame in source.frames():
+            for frame in source.frames(realtime=args.realtime):
                 destination.write(frame)
         finally:
             destination.close()

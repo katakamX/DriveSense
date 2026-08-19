@@ -4,12 +4,17 @@ Implements the shared `TelemetrySource` protocol, so the future OBD2 adapter
 is a drop-in alternative from the publisher's point of view. The backend never
 sees this class; it receives frames over the network (ADR 0001, ADR 0005).
 
-Runs headless and as fast as the CPU allows, which is what makes bulk dataset
-generation practical in Milestone 7.
+Runs headless and as fast as the CPU allows by default, which is what makes
+bulk dataset generation practical in Milestone 7. `frames(realtime=True)`
+trades that for wall-clock pacing at `telemetry_hz` — required by anything
+that measures latency against a live backend (M14): a burst of frames
+arriving in a few milliseconds cannot say anything about ingest-to-browser
+latency under a realistic 10 Hz stream.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 
 from drivesense_contracts import TelemetryFrame, TripMeta
@@ -46,12 +51,19 @@ class SimulatorTelemetrySource:
         self._session = SimulationSession(self._provider, self._spec, self._config, trip_id=trip_id)
         return self._session.build_meta()
 
-    def frames(self) -> Iterator[TelemetryFrame]:
+    def frames(self, *, realtime: bool = False) -> Iterator[TelemetryFrame]:
         session = self.session
         steps = int(round(self._duration_s / self._config.physics_dt))
+        period = self._config.telemetry_period
+        next_due = time.monotonic()
         for _ in range(steps):
             frame = session.step_once()
             if frame is not None:
+                if realtime:
+                    next_due += period
+                    delay = next_due - time.monotonic()
+                    if delay > 0:
+                        time.sleep(delay)
                 yield frame
 
     def stop(self) -> None:

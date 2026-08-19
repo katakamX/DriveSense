@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -178,6 +179,37 @@ def test_simulator_source_produces_frames_headlessly(spec: VehicleSpec) -> None:
     assert len(frames) == 60
     assert frames[0].trip_id == "trip-headless"
     assert all(frame.source == "simulator" for frame in frames)
+
+
+def test_realtime_pacing_matches_wall_clock_duration(spec: VehicleSpec) -> None:
+    config = SimConfig()
+    source = SimulatorTelemetrySource(
+        ScriptedInputProvider(DEMO_DRIVE, config), spec, config, duration_s=0.3
+    )
+    source.start("trip-realtime")
+    start = time.perf_counter()
+    frames = list(source.frames(realtime=True))
+    elapsed = time.perf_counter() - start
+    source.stop()
+
+    assert len(frames) == 3
+    # A bursty headless run produces 0.3s of telemetry in a few milliseconds;
+    # realtime pacing must make it take close to 0.3s of actual wall time.
+    assert elapsed >= 0.25
+
+
+def test_default_pacing_runs_as_fast_as_the_cpu_allows(spec: VehicleSpec) -> None:
+    config = SimConfig()
+    source = SimulatorTelemetrySource(
+        ScriptedInputProvider(DEMO_DRIVE, config), spec, config, duration_s=0.3
+    )
+    source.start("trip-fast")
+    start = time.perf_counter()
+    list(source.frames())
+    elapsed = time.perf_counter() - start
+    source.stop()
+
+    assert elapsed < 0.1
 
 
 def test_source_requires_start_before_use() -> None:
