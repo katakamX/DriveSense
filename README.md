@@ -222,13 +222,35 @@ npm run typecheck && npm run lint && npm run format:check && npm run build
 ```
 
 The same four commands (`ruff check`, `ruff format --check`, `mypy`, `pytest`)
-run in `contracts/`, `simulator/`, `ml/` and `cv/` as well, each against its own
-virtualenv.
+run in `contracts/`, `simulator/`, `ml/`, `cv/` and `bench/` as well, each
+against its own virtualenv. Every Python package is type-checked under
+`mypy --strict`, not merely linted.
 
 A `Makefile` wraps the common ones as `make contracts-check`,
 `make simulator-check`, `make backend-check`, `make frontend-check` and
-`make check` (which runs those four — `ml` and `cv` are not in it yet). CI runs
-six matching jobs plus a Docker image build on every push and pull request.
+`make check` (which runs those four — `ml`, `cv` and `bench` are not in it
+yet). CI runs six matching jobs plus a Docker image build on every push and
+pull request.
+
+### Test suites
+
+738 passing and 13 skipped, across seven suites — every one of them run green
+at the commit that published these numbers, not estimated:
+
+| Package | Tests | What they cover |
+| --- | --- | --- |
+| `backend/` | 368 (+2 skipped) | API, auth, ingest, windowing, risk engine (golden + Hypothesis property tests), live WebSocket lifecycle |
+| `ml/` | 162 (+11 skipped) | Feature parity against the backend's implementation (ADR 0004), labelling rubric, training pipeline |
+| `simulator/` | 120 | Vehicle dynamics, telemetry mapping, sinks, headless purity (the telemetry path must never import pygame) |
+| `bench/` | 27 | Latency aggregation, percentiles, capacity-collapse detection, WebSocket listener lifecycle |
+| `cv/` | 18 | Drowsiness estimation, frame handling, backend client |
+| `contracts/` | 17 | Shared schema validation and round-tripping |
+| `frontend/` | 26 | Vitest — components and hooks |
+
+The risk engine carries both golden fixtures and Hypothesis property tests,
+because its invariants (boundedness, monotonicity in severity, the rule gate)
+are statements about *every* input, and a hand-written sweep only ever checks
+the inputs its author already thought of.
 
 ### Training the model
 
@@ -248,6 +270,18 @@ artefact present the risk engine still runs, rule-only.
 All paths are under `/api/v1`. Generated schema at `/openapi.json`, interactive
 docs at `/docs`.
 
+**Authentication.** Staff CRUD (`/drivers`, `/vehicles`, `/trips`) and the
+review queue require an employee or admin session; `/users` and `/admin/*`
+require admin. Self-service routes (`/trips/me`, `/driver-applications/*`)
+require only a logged-in user and resolve the caller's own driver record —
+they cannot return someone else's data. The producer endpoints
+(`/trips/{id}/telemetry/batch`, `/ingest/driver-state`, the driver-monitor
+socket) are deliberately **unauthenticated**: they are called by devices and
+by the separate CV process, neither of which holds a browser session, and
+issuing them credentials is a real design decision rather than a line of code
+— see [Scope and honesty](#scope-and-honesty). Route protection is pinned by
+its own test module so a future router edit cannot silently ungate a resource.
+
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness. Never touches external systems. |
@@ -259,7 +293,7 @@ docs at `/docs`.
 | `GET` | `/trips/{id}/risk-windows`, `/trips/{id}/events`, `/trips/{id}/telemetry` | Read-only trip detail: per-window risk breakdown, driving events, route/telemetry points. |
 | `POST` | `/trips/{trip_id}/telemetry/batch` | Batched telemetry ingest. Feeds the ring buffer, event detection and the inference tick. |
 | `POST` | `/ingest/driver-state` | Driver state from the CV process. `trip_id` travels in the payload, not the path — see ADR 0002. |
-| `WS` | `/trips/{trip_id}/live` | Live stream. Envelope is `{ type, data }` with `type` one of `telemetry`, `event`, `risk`, `driver_state`. Closes `4404` for an unknown trip. |
+| `WS` | `/trips/{trip_id}/live` | Live stream. Envelope is `{ type, data }` with `type` one of `telemetry`, `event`, `risk`, `driver_state`, plus `snapshot` (sent once on connect, so a client joining mid-trip is not staring at an empty page) and `ping` (server heartbeat, so a half-open socket is distinguishable from a quiet trip). Closes `4404` for an unknown trip. |
 | `POST` | `/auth/register`, `/auth/login`, `/auth/logout` | Email/password auth. Sessions are DB-backed opaque cookie tokens, not JWT. |
 | `POST` | `/auth/verify-otp`, `/auth/resend-otp` | Email OTP verification for password accounts. |
 | `GET` | `/auth/me` | Current session's user. |
@@ -375,6 +409,20 @@ method are in [`docs/architecture.md`](docs/architecture.md#frequency-budget).
 Tuning the pool size is left to a future ops/perf pass — this milestone's
 job was to measure and report, not to fix.
 
+Reproduce it against a running backend:
+
+```bash
+cd bench
+.venv/Scripts/python -m drivesense_bench                     # default ramp: 1→80 trips
+.venv/Scripts/python -m drivesense_bench --levels 1 5 10 --duration 20
+```
+
+The harness counts three kinds of loss separately — HTTP sends that failed,
+frames sent but never seen on the WebSocket, and listener sockets that never
+connected at all — because a throughput number that quietly averages over
+dropped data is worse than no number. A level where nothing completed a round
+trip is reported as a capacity collapse, never as "p95 stayed under target".
+
 ## Repository layout
 
 ```
@@ -394,6 +442,8 @@ frontend/    React dashboard — Login/Signup, Dashboard, Driver Dashboard,
              trips), Admin Users, Admin System
 ml/          Offline training pipeline, artefacts and evaluation reports
 cv/          Driver-monitoring service, separate process (ADR 0002)
+bench/       Load generator and latency harness (M14) — drives real trips
+             over HTTP and times them off a real WebSocket
 docs/        Architecture, model card and ADRs
 data/        Datasets and recordings — gitignored, reproducible
 ```
@@ -429,6 +479,13 @@ larger one with demo-only functionality.
   persisted and streamed, and that is all. Wiring it in without first deciding
   how a missing camera renormalises the score would be exactly the kind of
   demo-only functionality this section exists to prevent.
+- **Concurrency is capped at roughly 10 live trips, and the cap is a hard
+  one.** Measured, not assumed — see
+  [Latency and throughput](#latency-and-throughput-m14). Past it the database
+  connection pool is exhausted and ingest fails outright rather than slowing
+  down. The number is published here because a latency figure without the
+  load it was measured at is not a real figure, and because "it collapses at
+  20" is the more useful half of the result.
 
 ## Licence
 
