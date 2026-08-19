@@ -1,12 +1,12 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import { AppShell } from '@/components/layout/AppShell';
-import { Dashboard } from '@/pages/Dashboard';
 import { DriverApplication } from '@/pages/DriverApplication';
 import { DriverDashboard } from '@/pages/DriverDashboard';
 import { DriverMonitor } from '@/pages/DriverMonitor';
 import { EmployeeLogin } from '@/pages/EmployeeLogin';
 import { EmployeeReviewDetail, EmployeeReviewQueue } from '@/pages/EmployeeReview';
+import { Home } from '@/pages/Home';
 import { LiveDrive } from '@/pages/LiveDrive';
 import { Login } from '@/pages/Login';
 import { Signup } from '@/pages/Signup';
@@ -16,7 +16,7 @@ export function App() {
     <BrowserRouter>
       <AppShell>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<Home />} />
           <Route path="/dashboard" element={<DriverDashboard />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
