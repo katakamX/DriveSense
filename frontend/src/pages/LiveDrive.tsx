@@ -19,7 +19,7 @@ const CONNECTION_LABEL: Record<LiveConnectionState, { text: string; dot: string 
 
 const RISK_TONE: Record<LiveRisk['band'], BadgeTone> = {
   CALM: 'low',
-  NORMAL: 'low',
+  NORMAL: 'neutral',
   AGGRESSIVE: 'high',
   HIGH_RISK: 'critical',
 };
