@@ -9,6 +9,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# mediapipe and opencv-python-headless are compiled against X11/GL shared
+# libraries even though this process never opens a window — the .so files
+# still have to resolve at import time. python:3.12-slim ships none of them.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    libxcb1 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # --- dependency layer -------------------------------------------------------
 FROM base AS deps
 COPY pyproject.toml ./
