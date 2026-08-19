@@ -28,3 +28,12 @@ async def require_staff(user: User = Depends(get_current_user)) -> User:
     if user.role not in STAFF_ROLES:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Staff role required")
     return user
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Gate for role-management endpoints: logged in AND role is admin. Stricter
+    than `require_staff` — an employee can review applications but not
+    promote another user to employee or admin."""
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin role required")
+    return user

@@ -33,6 +33,7 @@ from app.api.v1 import (
     live,
     telemetry,
     trips,
+    users,
     vehicles,
 )
 from app.config import get_settings
@@ -115,6 +116,7 @@ def create_app() -> FastAPI:
     v1.include_router(ingest.router)
     v1.include_router(live.router)
     v1.include_router(driver_monitor.router)
+    v1.include_router(users.router)
     app.include_router(v1)
 
     return app
