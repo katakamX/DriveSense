@@ -39,6 +39,9 @@ async def list_trips(
     driver_id: uuid.UUID | None = Query(None),
     vehicle_id: uuid.UUID | None = Query(None),
     status_: str | None = Query(None, alias="status"),
+    sort: str | None = Query(
+        None, description="'risk_score' or '-risk_score' to sort by risk; default is newest first"
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> list[Trip]:
     stmt = select(Trip)
@@ -48,7 +51,15 @@ async def list_trips(
         stmt = stmt.where(Trip.vehicle_id == vehicle_id)
     if status_ is not None:
         stmt = stmt.where(Trip.status == status_)
-    stmt = stmt.order_by(Trip.started_at.desc()).limit(limit).offset(offset)
+    if sort == "risk_score":
+        # Nulls (never-scored trips) sort last regardless of direction, so an
+        # employee scanning for risk always sees scored trips first.
+        stmt = stmt.order_by(Trip.risk_score.is_(None), Trip.risk_score.asc())
+    elif sort == "-risk_score":
+        stmt = stmt.order_by(Trip.risk_score.is_(None), Trip.risk_score.desc())
+    else:
+        stmt = stmt.order_by(Trip.started_at.desc())
+    stmt = stmt.limit(limit).offset(offset)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 

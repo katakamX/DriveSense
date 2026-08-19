@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Trip
 from tests.conftest import register_staff
 
 
@@ -108,6 +109,30 @@ def test_list_trips_filter_by_status(client: TestClient) -> None:
     body = response.json()
     assert all(t["status"] == "completed" for t in body)
     assert len(body) == 1
+
+
+async def test_list_trips_sort_by_risk(client: TestClient, db_session: AsyncSession) -> None:
+    driver = _create_driver(client, license_number="TRIP-DRV-550")
+    vehicle = _create_vehicle(client, vin="TRIPVIN0000000550", license_plate="TRIP-550")
+    low = _create_trip(client, driver["id"], vehicle["id"], started_at="2026-08-09T14:00:00Z")
+    high = _create_trip(client, driver["id"], vehicle["id"], started_at="2026-08-09T15:00:00Z")
+    unscored = _create_trip(client, driver["id"], vehicle["id"], started_at="2026-08-09T16:00:00Z")
+
+    for trip_id, score in ((low["id"], 10.0), (high["id"], 90.0)):
+        trip = await db_session.get(Trip, trip_id)
+        assert trip is not None
+        trip.risk_score = score
+    await db_session.commit()
+
+    response = client.get("/api/v1/trips", params={"sort": "-risk_score"})
+    assert response.status_code == 200
+    ids = [t["id"] for t in response.json()]
+    assert ids.index(high["id"]) < ids.index(low["id"]) < ids.index(unscored["id"])
+
+    response = client.get("/api/v1/trips", params={"sort": "risk_score"})
+    assert response.status_code == 200
+    ids = [t["id"] for t in response.json()]
+    assert ids.index(low["id"]) < ids.index(high["id"]) < ids.index(unscored["id"])
 
 
 def test_get_trip_by_id(client: TestClient) -> None:
