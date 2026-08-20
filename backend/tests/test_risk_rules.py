@@ -135,6 +135,88 @@ def test_matched_is_ordered_most_severe_first() -> None:
     assert len(outcome.matched) == 5
 
 
+# --- evaluate_obd: 4 of 5 AGGRESSIVE triggers, 4 of 5 CALM legs -----------
+
+OBD_BASELINE: dict[str, float] = {
+    "harsh_braking_per_min": 0.0,
+    "rapid_accel_per_min": 0.0,
+    "speeding_time_ratio": 0.0,
+    "accel_min": -0.80,
+    "accel_max": 0.90,
+    "accel_std": 0.30,
+    "speed_cv": 0.10,
+}
+
+
+def obd_window(**overrides: float) -> dict[str, float]:
+    return {**OBD_BASELINE, **overrides}
+
+
+def test_evaluate_obd_does_not_require_lateral_keys() -> None:
+    """Proves the OBD path never reads `lat_accel_*` — the dict genuinely
+    lacks those keys, not just holds zeroes for them."""
+    outcome = rules.evaluate_obd(obd_window())
+    assert outcome.band is RiskBand.NORMAL
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_band", "expected_rule"),
+    [
+        (
+            {"speeding_time_ratio": 0.6, "accel_min": -2.5},
+            RiskBand.HIGH_RISK,
+            "speeding_time_ratio>=0.5 and accel_min<=-2.0",
+        ),
+        ({"harsh_braking_per_min": 2.0}, RiskBand.AGGRESSIVE, "harsh_braking_per_min>=2.0"),
+        ({"accel_max": 1.5}, RiskBand.AGGRESSIVE, "accel_max>=1.5"),
+        ({"speeding_time_ratio": 0.5}, RiskBand.AGGRESSIVE, "speeding_time_ratio>=0.5"),
+        ({"accel_std": 0.45}, RiskBand.AGGRESSIVE, "accel_std>=0.45"),
+        (
+            {"speed_cv": 0.02, "accel_std": 0.15},
+            RiskBand.CALM,
+            "steady_smooth_no_events_obd",
+        ),
+    ],
+)
+def test_evaluate_obd_reaches_every_rule_it_keeps(
+    overrides: dict[str, float], expected_band: RiskBand, expected_rule: str
+) -> None:
+    outcome = rules.evaluate_obd(obd_window(**overrides))
+    assert outcome.band is expected_band
+    assert outcome.first_match == expected_rule
+
+
+def test_evaluate_obd_rule_ids_constant_covers_every_reachable_rule() -> None:
+    reachable = {
+        "speeding_time_ratio>=0.5 and accel_min<=-2.0": {
+            "speeding_time_ratio": 0.6,
+            "accel_min": -2.5,
+        },
+        "harsh_braking_per_min>=2.0": {"harsh_braking_per_min": 2.0},
+        "accel_max>=1.5": {"accel_max": 1.5},
+        "speeding_time_ratio>=0.5": {"speeding_time_ratio": 0.5},
+        "accel_std>=0.45": {"accel_std": 0.45},
+        "steady_smooth_no_events_obd": {"speed_cv": 0.02, "accel_std": 0.15},
+    }
+    assert set(rules.OBD_RULE_IDS) == set(reachable)
+    for rule_id, overrides in reachable.items():
+        assert rule_id in rules.evaluate_obd(obd_window(**overrides)).matched
+
+
+def test_evaluate_obd_never_emits_a_lateral_rule_id() -> None:
+    """No `OBD_RULE_IDS` entry mentions `lat_accel` — the reduction is total,
+    not just untriggered in these particular tests."""
+    assert not any("lat_accel" in rule_id for rule_id in rules.OBD_RULE_IDS)
+
+
+def test_evaluate_obd_calm_only_needs_its_four_remaining_legs() -> None:
+    """The one CALM leg `evaluate` has that `evaluate_obd` does not
+    (`lat_accel_std<=0.25`) is genuinely dropped, not silently satisfied by
+    an absent key defaulting to something CALM-friendly."""
+    outcome = rules.evaluate_obd(obd_window(speed_cv=0.02, accel_std=0.15))
+    assert outcome.band is RiskBand.CALM
+
+
 def test_first_match_agrees_with_the_labeller() -> None:
     """`evaluate` and `label_window_with_reason` read one list, so they must agree."""
     for overrides in (

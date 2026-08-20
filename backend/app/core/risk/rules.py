@@ -267,6 +267,86 @@ def evaluate(values: Mapping[str, float]) -> RuleOutcome:
     )
 
 
+# --- OBD-sourced windows: 4 of 5 AGGRESSIVE triggers, 4 of 5 CALM legs -----
+#
+# An OBD2 export (Speed_kmh, RPM, Gear, Throttle_pct, Brake_pct, ...) has no
+# lateral signal at all — no steering angle, no yaw rate, no lat/lon to derive
+# heading change from. `lat_accel_max_abs` and `lat_accel_std` therefore have
+# no honest value to supply. See STEP4_FINDINGS.md for why hardcoding 0 was
+# rejected: it would silently disable the `lat_accel_max_abs>=2.0` AGGRESSIVE
+# trigger *and* silently loosen CALM's conjunction (0 trivially clears
+# `<=0.25`, the easiest possible pass for a leg calibrated assuming real
+# cornering data). Both are a form of imputation this engine's own
+# `coverage_ratio`/`provenance` machinery exists to rule out.
+#
+# The alternative taken here: drop each rule's lateral leg entirely rather
+# than fake a value for it. `evaluate_obd` runs the same HIGH_RISK rule
+# unchanged (it never reads a lateral feature), AGGRESSIVE on 4 of its 5
+# independent triggers, and CALM on 4 of its 5 conjunction legs — a
+# genuinely smaller, documented rule set, not a padded one. Every threshold
+# below is the *same* constant `evaluate` uses; only which conditions are
+# checked differs.
+OBD_RULE_IDS: tuple[str, ...] = (
+    "speeding_time_ratio>=0.5 and accel_min<=-2.0",
+    "harsh_braking_per_min>=2.0",
+    "accel_max>=1.5",
+    "speeding_time_ratio>=0.5",
+    "accel_std>=0.45",
+    "steady_smooth_no_events_obd",
+)
+
+
+def evaluate_obd(values: Mapping[str, float]) -> RuleOutcome:
+    """`evaluate`'s decision list minus the two rules with no OBD-native input.
+
+    `values` needs only `harsh_braking_per_min`, `rapid_accel_per_min`,
+    `speeding_time_ratio`, `accel_min`, `accel_max`, `accel_std`, `speed_cv` —
+    the 7 features genuinely derivable from an OBD export's `Speed_kmh`
+    column (see `app.core.obd.features`). No `lat_accel_*` key is read.
+    """
+    harsh_braking_per_min = values["harsh_braking_per_min"]
+    rapid_accel_per_min = values["rapid_accel_per_min"]
+    speeding_time_ratio = values["speeding_time_ratio"]
+    accel_min = values["accel_min"]
+    accel_max = values["accel_max"]
+    accel_std = values["accel_std"]
+    speed_cv = values["speed_cv"]
+
+    matched: list[tuple[RiskBand, str]] = []
+
+    if (
+        speeding_time_ratio >= HIGH_RISK_SPEEDING_TIME_RATIO
+        and accel_min <= HIGH_RISK_SPEEDING_ACCEL_MIN
+    ):
+        matched.append((RiskBand.HIGH_RISK, "speeding_time_ratio>=0.5 and accel_min<=-2.0"))
+
+    if harsh_braking_per_min >= AGGRESSIVE_HARSH_BRAKING_PER_MIN:
+        matched.append((RiskBand.AGGRESSIVE, "harsh_braking_per_min>=2.0"))
+    if accel_max >= AGGRESSIVE_ACCEL_MAX:
+        matched.append((RiskBand.AGGRESSIVE, "accel_max>=1.5"))
+    if speeding_time_ratio >= AGGRESSIVE_SPEEDING_TIME_RATIO:
+        matched.append((RiskBand.AGGRESSIVE, "speeding_time_ratio>=0.5"))
+    if accel_std >= AGGRESSIVE_ACCEL_STD:
+        matched.append((RiskBand.AGGRESSIVE, "accel_std>=0.45"))
+
+    if (
+        harsh_braking_per_min == 0.0
+        and rapid_accel_per_min == 0.0
+        and speed_cv <= CALM_SPEED_CV
+        and accel_std <= CALM_ACCEL_STD
+    ):
+        matched.append((RiskBand.CALM, "steady_smooth_no_events_obd"))
+
+    if not matched:
+        return RuleOutcome(band=RiskBand.NORMAL, matched=(), first_match=DEFAULT_RULE)
+
+    return RuleOutcome(
+        band=matched[0][0],
+        matched=tuple(rule for _, rule in matched),
+        first_match=matched[0][1],
+    )
+
+
 def label_window_with_reason(values: Mapping[str, float]) -> tuple[Label, str]:
     """Classify one window's feature dict, returning (label, matched_rule).
 
