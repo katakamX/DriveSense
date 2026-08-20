@@ -53,3 +53,12 @@ export async function createDriver(input: DriverCreateInput): Promise<RosterDriv
   if (!response.ok) throw await failure(response);
   return (await response.json()) as RosterDriver;
 }
+
+export async function fetchDriver(driverId: string, signal?: AbortSignal): Promise<RosterDriver> {
+  const response = await fetch(`${API_BASE}/drivers/${encodeURIComponent(driverId)}`, {
+    credentials: 'include',
+    signal,
+  });
+  if (!response.ok) throw await failure(response);
+  return (await response.json()) as RosterDriver;
+}

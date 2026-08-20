@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
@@ -146,6 +147,37 @@ function CreateDriverForm({
   );
 }
 
+function DriverSearch() {
+  const [driverId, setDriverId] = useState('');
+  const navigate = useNavigate();
+
+  return (
+    <form
+      className="mt-4 flex gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const id = driverId.trim();
+        if (id) void navigate(`/employee/drivers/${encodeURIComponent(id)}/analysis`);
+      }}
+    >
+      <input
+        type="text"
+        value={driverId}
+        onChange={(event) => setDriverId(event.target.value)}
+        placeholder="Driver ID"
+        aria-label="Driver ID"
+        className="rounded-md border border-border-subtle bg-surface-base px-3 py-1.5 text-sm text-content-primary placeholder:text-content-muted"
+      />
+      <button
+        type="submit"
+        className="rounded-md bg-surface-overlay px-3 py-1.5 text-sm font-medium text-content-primary hover:opacity-90"
+      >
+        Open live analysis
+      </button>
+    </form>
+  );
+}
+
 export function EmployeeDrivers() {
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [drivers, setDrivers] = useState<RosterDriver[] | null>(null);
@@ -192,6 +224,8 @@ export function EmployeeDrivers() {
         />
       )}
 
+      <DriverSearch />
+
       <div className="mt-4 flex gap-1">
         {STATUS_FILTERS.map((option) => (
           <button
@@ -223,6 +257,7 @@ export function EmployeeDrivers() {
                 <th className="px-5 py-3 font-medium">Code</th>
                 <th className="px-5 py-3 font-medium">Vehicle</th>
                 <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium" />
               </tr>
             </thead>
             <tbody>
@@ -238,6 +273,14 @@ export function EmployeeDrivers() {
                   </td>
                   <td className="px-5 py-3">
                     <Badge tone={STATUS_TONE[driver.status] ?? 'neutral'}>{driver.status}</Badge>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <Link
+                      to={`/employee/drivers/${driver.id}/analysis`}
+                      className="text-sm text-content-secondary hover:text-content-primary hover:underline"
+                    >
+                      Live analysis
+                    </Link>
                   </td>
                 </tr>
               ))}

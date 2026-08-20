@@ -7,6 +7,7 @@ import { AdminSystem } from '@/pages/AdminSystem';
 import { AdminUsers } from '@/pages/AdminUsers';
 import { DriverApplication } from '@/pages/DriverApplication';
 import { DriverDashboard } from '@/pages/DriverDashboard';
+import { DriverLiveAnalysis } from '@/pages/DriverLiveAnalysis';
 import { DriverMonitor } from '@/pages/DriverMonitor';
 import { EmployeeDrivers } from '@/pages/EmployeeDrivers';
 import { EmployeeLogin } from '@/pages/EmployeeLogin';
@@ -51,6 +52,14 @@ export function App() {
               element={
                 <RequireRole allow="staff">
                   <EmployeeVehicles />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/employee/drivers/:driverId/analysis"
+              element={
+                <RequireRole allow="staff">
+                  <DriverLiveAnalysis />
                 </RequireRole>
               }
             />
