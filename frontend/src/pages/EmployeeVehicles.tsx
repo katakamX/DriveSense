@@ -1,13 +1,113 @@
 import { useEffect, useState } from 'react';
 
 import { Panel } from '@/components/ui/Panel';
-import { fetchVehicleRoster, type RosterVehicle } from '@/lib/api/vehicleRoster';
+import {
+  createVehicle,
+  fetchVehicleRoster,
+  type RosterVehicle,
+  type VehicleCreateInput,
+} from '@/lib/api/vehicleRoster';
+
+const INPUT_CLASS =
+  'rounded-md border border-border-subtle bg-surface-base px-3 py-1.5 text-sm text-content-primary placeholder:text-content-muted focus:border-accent focus:outline-none';
+const BUTTON_CLASS =
+  'rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-surface-base transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40';
+
+const EMPTY_FORM: VehicleCreateInput = {
+  make: '',
+  model: '',
+  year: new Date().getFullYear(),
+  vin: '',
+  license_plate: '',
+};
+
+function CreateVehicleForm({
+  onCreated,
+  onCancel,
+}: {
+  onCreated: (vehicle: RosterVehicle) => void;
+  onCancel: () => void;
+}) {
+  const [form, setForm] = useState<VehicleCreateInput>(EMPTY_FORM);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (event: React.FormEvent): Promise<void> => {
+    event.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      onCreated(await createVehicle(form));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create vehicle');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Panel className="mt-4 p-5">
+      <form onSubmit={(event) => void handleSubmit(event)} className="grid gap-3 sm:grid-cols-5">
+        <input
+          required
+          placeholder="Make"
+          value={form.make}
+          onChange={(event) => setForm({ ...form, make: event.target.value })}
+          className={INPUT_CLASS}
+        />
+        <input
+          required
+          placeholder="Model"
+          value={form.model}
+          onChange={(event) => setForm({ ...form, model: event.target.value })}
+          className={INPUT_CLASS}
+        />
+        <input
+          required
+          type="number"
+          placeholder="Year"
+          value={form.year}
+          onChange={(event) => setForm({ ...form, year: Number(event.target.value) })}
+          className={`tabular ${INPUT_CLASS}`}
+        />
+        <input
+          required
+          placeholder="VIN"
+          value={form.vin}
+          onChange={(event) => setForm({ ...form, vin: event.target.value })}
+          className={`tabular ${INPUT_CLASS}`}
+        />
+        <input
+          required
+          placeholder="License plate"
+          value={form.license_plate}
+          onChange={(event) => setForm({ ...form, license_plate: event.target.value })}
+          className={INPUT_CLASS}
+        />
+        {error && <p className="sm:col-span-5 text-sm text-risk-critical">{error}</p>}
+        <div className="flex gap-2 sm:col-span-5">
+          <button type="submit" disabled={submitting} className={BUTTON_CLASS}>
+            {submitting ? 'Creating…' : 'Create vehicle'}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-content-secondary hover:text-content-primary"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Panel>
+  );
+}
 
 export function EmployeeVehicles() {
   const [makeInput, setMakeInput] = useState('');
   const [make, setMake] = useState('');
   const [vehicles, setVehicles] = useState<RosterVehicle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -25,8 +125,29 @@ export function EmployeeVehicles() {
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold">Vehicles</h1>
-      <p className="mt-1 text-content-secondary">Fleet vehicles.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Vehicles</h1>
+          <p className="mt-1 text-content-secondary">Fleet vehicles.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowCreate((shown) => !shown)}
+          className="rounded-md bg-surface-overlay px-3 py-1.5 text-sm font-medium text-content-primary hover:opacity-90"
+        >
+          {showCreate ? 'Close' : '+ New vehicle'}
+        </button>
+      </div>
+
+      {showCreate && (
+        <CreateVehicleForm
+          onCreated={(vehicle) => {
+            setVehicles((prev) => (prev ? [vehicle, ...prev] : [vehicle]));
+            setShowCreate(false);
+          }}
+          onCancel={() => setShowCreate(false)}
+        />
+      )}
 
       <form
         className="mt-4 flex gap-2"
