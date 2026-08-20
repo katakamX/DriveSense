@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     # proxies /api, so this matters mainly for direct cross-origin access.
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
+    # `app.db.seed_admin` (`python -m app.db.seed_admin`). Dev-only login so
+    # the admin role doesn't require a manual DB promotion after registering.
+    # Change these in `.env` for anything other than a local checkout.
+    seed_admin_email: str = "admin@drivesense.dev"
+    seed_admin_password: str = "ChangeMe123!"
+
 
 @lru_cache
 def get_settings() -> Settings:

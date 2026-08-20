@@ -177,6 +177,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 pre-commit install               # once per clone — runs lint/format checks pre-commit
 alembic upgrade head             # schema — nothing creates it implicitly
+python -m app.db.seed_admin      # dev admin login — see Configuration below
 
 # Windows — recommended, frees the port first (see below)
 powershell -ExecutionPolicy Bypass -File scripts/dev_server.ps1
@@ -456,6 +457,21 @@ Database tables: `drivers`, `vehicles`, `trips`, `telemetry`, `driving_events`,
 All configuration comes from environment variables; see
 [.env.example](.env.example) for the full set. **No secrets are committed** —
 `.env` is gitignored, and the example file contains placeholders only.
+
+### Dev admin login
+
+`python -m app.db.seed_admin` (run once, after `alembic upgrade head`) creates
+or updates an admin `User` so staff-only pages don't need a manual DB role
+promotion after registering. Idempotent — re-running just resets the
+password/role on the same row.
+
+| | |
+| --- | --- |
+| Email | `admin@drivesense.dev` |
+| Password | `ChangeMe123!` |
+
+Override via `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in `.env`. These are
+dev-only defaults — never rely on them outside a local checkout.
 
 ## Scope and honesty
 
