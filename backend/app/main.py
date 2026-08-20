@@ -32,6 +32,7 @@ from app.api.v1 import (
     health,
     ingest,
     live,
+    obd,
     telemetry,
     trip_detail,
     trips,
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
     v1.include_router(ingest.router)
     v1.include_router(live.router)
     v1.include_router(driver_monitor.router)
+    v1.include_router(obd.router)
     v1.include_router(users.router)
     v1.include_router(admin.router)
     app.include_router(v1)

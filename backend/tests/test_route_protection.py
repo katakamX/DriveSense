@@ -98,6 +98,12 @@ def test_list_trips_requires_authentication(client: TestClient) -> None:
     assert client.get("/api/v1/trips").status_code == 401
 
 
+def test_obd_analyze_requires_authentication(client: TestClient) -> None:
+    files = {"file": ("t.csv", b"Time_s,Speed_kmh\n0.03,0.0\n", "text/csv")}
+    response = client.post("/api/v1/obd/analyze", files=files)
+    assert response.status_code == 401
+
+
 def test_create_trip_requires_authentication(client: TestClient) -> None:
     response = client.post(
         "/api/v1/trips",
@@ -154,6 +160,17 @@ def test_list_trips_refuses_plain_user_role(client: TestClient) -> None:
     )
 
     response = client.get("/api/v1/trips")
+    assert response.status_code == 403
+
+
+def test_obd_analyze_refuses_plain_user_role(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": "plain-user-4@example.com", "password": "correcthorsebattery"},
+    )
+
+    files = {"file": ("t.csv", b"Time_s,Speed_kmh\n0.03,0.0\n", "text/csv")}
+    response = client.post("/api/v1/obd/analyze", files=files)
     assert response.status_code == 403
 
 

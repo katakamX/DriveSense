@@ -6,9 +6,10 @@ import pytest
 from app.core.obd.features import (
     OBD_FEATURE_VERSION,
     assess_obd_window,
+    build_replay,
     obd_rows_to_feature_samples,
 )
-from app.core.obd.parse import parse_obd_csv
+from app.core.obd.parse import ObdRow, parse_obd_csv
 from app.core.risk.schema import Provenance, RiskBand
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_obd.csv"
@@ -113,3 +114,60 @@ def test_coverage_ratio_reflects_expected_sample_count() -> None:
         expected_sample_count=len(samples),
     )
     assert result.coverage_ratio == pytest.approx(0.5, abs=0.02)
+
+
+# --- build_replay: the whole file as a chunked playback ---------------------
+
+
+def test_replay_covers_the_whole_file_at_one_second_steps() -> None:
+    rows = _fixture_rows()
+    chunks = build_replay(rows, base_time=BASE_TIME, speed_limit_kph=100.0)
+
+    times = [c.t for c in chunks]
+    assert times == sorted(times)
+    assert times[0] == pytest.approx(1.0)
+    # The file is ~53.4s; the last chunk lands exactly on the last row's
+    # time rather than overshooting or truncating to a whole second.
+    assert times[-1] == pytest.approx(rows[-1].time_s)
+    assert 40 < len(chunks) < 60
+
+
+def test_too_little_data_for_one_chunk_has_no_risk() -> None:
+    """A single raw row can't produce even one differentiated sample - the
+    one resulting chunk is honestly `assessment=None`, not a fabricated
+    zero-motion reading."""
+    rows = [ObdRow(0.03, 0.0, 749, 0, 0, 0, 0.0, 15.0, 15.0, -1, 0, 4, 0, 0)]
+    chunks = build_replay(rows, base_time=BASE_TIME, speed_limit_kph=100.0)
+    assert len(chunks) == 1
+    assert chunks[0].assessment is None
+
+
+def test_later_chunks_have_risk_with_growing_coverage() -> None:
+    rows = _fixture_rows()
+    chunks = build_replay(rows, base_time=BASE_TIME, speed_limit_kph=100.0)
+    with_risk = [c for c in chunks if c.assessment is not None]
+    assert with_risk
+
+    # Coverage should climb while the trailing 30s window is still filling
+    # up (t < 30), then plateau near 1.0 once it's full (t >= 30).
+    early = [c for c in with_risk if c.t < 5]
+    late = [c for c in with_risk if c.t >= 30]
+    assert early and late
+    assert max(c.assessment.coverage_ratio for c in early) < 0.5
+    assert all(c.assessment.coverage_ratio > 0.8 for c in late)
+
+
+def test_replay_chunk_stats_are_the_raw_reading_at_that_time() -> None:
+    """Display stats come from the actual OBD row, not the smoothed series
+    used internally for differentiation."""
+    rows = _fixture_rows()
+    chunks = build_replay(rows, base_time=BASE_TIME, speed_limit_kph=100.0)
+    ten_second_chunk = next(c for c in chunks if c.t == pytest.approx(10.0))
+    nearest_row = min(rows, key=lambda r: abs(r.time_s - 10.0))
+    assert ten_second_chunk.speed_kmh == nearest_row.speed_kmh
+    assert ten_second_chunk.rpm == nearest_row.rpm
+
+
+def test_replay_requires_at_least_one_row() -> None:
+    with pytest.raises(ValueError, match="at least one row"):
+        build_replay([], base_time=BASE_TIME, speed_limit_kph=100.0)

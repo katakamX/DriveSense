@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     seed_admin_email: str = "admin@drivesense.dev"
     seed_admin_password: str = "ChangeMe123!"
 
+    # OBD2 CSV upload (app.api.v1.obd). Not persisted to disk or DB — parsed
+    # and scored synchronously, entirely in memory — so this is a request-size
+    # ceiling, not a storage budget. 20MB is generous: `sample_obd.csv`'s
+    # ~1780 rows at ~0.03s intervals is under 100KB, so this comfortably
+    # covers several hours of real recording.
+    obd_upload_max_bytes: int = 20 * 1024 * 1024
+
 
 @lru_cache
 def get_settings() -> Settings:

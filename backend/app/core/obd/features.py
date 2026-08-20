@@ -34,6 +34,7 @@ mean something again. See `tests/test_obd_features.py`.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from app.core.features import extract
@@ -187,3 +188,123 @@ def assess_obd_window(
         model_predicted_class=None,
         probabilities=None,
     )
+
+
+# --- Replay: the whole file as a sequence of chunked assessments ----------
+
+# How often the replay advances, in seconds of the *recording's* own
+# timeline — not wall-clock playback speed, which is the frontend's concern.
+DEFAULT_CHUNK_INTERVAL_S = 1.0
+
+# Trailing window each chunk's risk assessment covers, matching the live
+# pipeline's 30s window (DESIGN_PLAN.md's "trace" element and `RiskWindow`
+# both assume this size). Early chunks see a window still filling up —
+# that is real, honest partial coverage, the same as a live drive's first
+# 30 seconds, not a bug to hide.
+DEFAULT_WINDOW_S = 30.0
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayChunk:
+    """One playback step: the raw OBD reading at `t`, plus the trailing-window
+    risk assessment as of that point — or `None` if too little of the
+    recording has played to compute one yet."""
+
+    t: float
+    speed_kmh: float
+    rpm: float
+    gear: int
+    throttle_pct: float
+    brake_pct: float
+    assessment: RiskAssessment | None
+
+
+def build_replay(
+    rows: Sequence[ObdRow],
+    *,
+    base_time: datetime,
+    speed_limit_kph: float,
+    chunk_interval_s: float = DEFAULT_CHUNK_INTERVAL_S,
+    window_s: float = DEFAULT_WINDOW_S,
+) -> list[ReplayChunk]:
+    """The whole upload, replayed as `ReplayChunk`s at `chunk_interval_s`
+    steps through the recording's own `Time_s` timeline.
+
+    Mirrors the live pipeline's shape on purpose: telemetry (here, the raw
+    OBD reading) advances every chunk, while risk is a trailing `window_s`
+    assessment recomputed at each step — the OBD equivalent of "telemetry at
+    10 Hz, risk at 1 Hz" from the live drive. `chunk_interval_s` is
+    independent of `RESAMPLE_RATE_HZ`: the latter governs how the
+    accelerometer-equivalent signal is derived (see this module's docstring),
+    the former is how often a new reading is surfaced to a viewer.
+    """
+    if not rows:
+        raise ValueError("build_replay requires at least one row")
+
+    ordered_rows = sorted(rows, key=lambda r: r.time_s)
+    duration_s = ordered_rows[-1].time_s
+
+    feature_samples = obd_rows_to_feature_samples(ordered_rows, base_time=base_time)
+    sample_offsets = [(s.recorded_at - base_time).total_seconds() for s in feature_samples]
+
+    chunk_times: list[float] = []
+    t = chunk_interval_s
+    while t < duration_s:
+        chunk_times.append(round(t, 6))
+        t += chunk_interval_s
+    if not chunk_times or chunk_times[-1] < duration_s:
+        chunk_times.append(round(duration_s, 6))
+
+    chunks: list[ReplayChunk] = []
+    row_index = 0
+    window_lo = window_hi = 0
+    n_samples = len(feature_samples)
+
+    # Fixed, not scaled by elapsed time — matches the live ticker
+    # (`app.core.windowing.ticker._run`'s `expected_samples`), whose window
+    # is always "a full 30s", not "however much of the trip has happened so
+    # far". A window that hasn't existed for 30s yet is genuinely
+    # under-covered, the same as a live drive's first 30 seconds — that's
+    # what makes coverage_ratio climb toward 1.0 rather than start there.
+    expected_count = max(1, round(window_s * RESAMPLE_RATE_HZ))
+
+    for chunk_t in chunk_times:
+        # Advance the "current reading" pointer to the last row at or before
+        # this chunk's time — the raw telemetry a viewer would see right now,
+        # distinct from the resampled/smoothed series feeding the risk math.
+        while row_index + 1 < len(ordered_rows) and ordered_rows[row_index + 1].time_s <= chunk_t:
+            row_index += 1
+        row = ordered_rows[row_index]
+
+        # Two-pointer trailing window over the (monotonic) sample timeline —
+        # O(samples + chunks) total rather than rescanning per chunk.
+        window_start_t = max(0.0, chunk_t - window_s)
+        while window_hi < n_samples and sample_offsets[window_hi] <= chunk_t:
+            window_hi += 1
+        while window_lo < window_hi and sample_offsets[window_lo] <= window_start_t:
+            window_lo += 1
+        window_samples = feature_samples[window_lo:window_hi]
+
+        assessment = None
+        if len(window_samples) >= 2:
+            assessment = assess_obd_window(
+                window_samples,
+                window_start=base_time + timedelta(seconds=window_start_t),
+                window_end=base_time + timedelta(seconds=chunk_t),
+                speed_limit_kph=speed_limit_kph,
+                expected_sample_count=expected_count,
+            )
+
+        chunks.append(
+            ReplayChunk(
+                t=chunk_t,
+                speed_kmh=row.speed_kmh,
+                rpm=row.rpm,
+                gear=row.gear,
+                throttle_pct=row.throttle_pct,
+                brake_pct=row.brake_pct,
+                assessment=assessment,
+            )
+        )
+
+    return chunks
