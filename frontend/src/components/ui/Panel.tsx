@@ -6,10 +6,7 @@ interface PanelProps extends HTMLAttributes<HTMLDivElement> {
 
 export function Panel({ children, className = '', ...rest }: PanelProps) {
   return (
-    <div
-      className={`rounded-lg border border-border-subtle bg-surface-raised ${className}`}
-      {...rest}
-    >
+    <div className={`rounded border border-border-subtle bg-surface-raised ${className}`} {...rest}>
       {children}
     </div>
   );

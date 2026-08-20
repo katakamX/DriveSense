@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
+import { Trace, type TraceProvenance } from '@/components/ui/Trace';
 import {
   fetchRiskWindows,
   fetchTripEvents,
@@ -40,7 +41,7 @@ function RiskWindowsPanel({ windows }: { windows: RiskWindow[] }) {
               <th className="px-5 py-3 font-medium">Window</th>
               <th className="px-5 py-3 font-medium">Band</th>
               <th className="px-5 py-3 font-medium">Score</th>
-              <th className="px-5 py-3 font-medium">Coverage</th>
+              <th className="px-5 py-3 font-medium">Trace</th>
               <th className="px-5 py-3 font-medium">Matched rules</th>
             </tr>
           </thead>
@@ -57,8 +58,12 @@ function RiskWindowsPanel({ windows }: { windows: RiskWindow[] }) {
                 <td className="tabular px-5 py-3 text-content-primary">
                   {window.score.toFixed(1)}
                 </td>
-                <td className="tabular px-5 py-3 text-content-secondary">
-                  {(window.coverage_ratio * 100).toFixed(0)}%
+                <td className="px-5 py-3">
+                  <Trace
+                    sampleCount={window.sample_count}
+                    coverageRatio={window.coverage_ratio}
+                    provenance={window.provenance as TraceProvenance}
+                  />
                 </td>
                 <td className="px-5 py-3 text-content-secondary">
                   {window.matched_rules.length > 0 ? window.matched_rules.join(', ') : '—'}

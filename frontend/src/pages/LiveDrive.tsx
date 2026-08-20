@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { StatTile } from '@/components/ui/StatTile';
+import { Trace } from '@/components/ui/Trace';
 import {
   useLiveTrip,
   type LiveConnectionState,
@@ -90,19 +91,22 @@ export function LiveDrive() {
       {latestRisk && (
         <Panel className="mt-6 flex flex-wrap items-center justify-between gap-3 px-5 py-4">
           <div className="flex items-center gap-3">
-            <Badge tone={RISK_TONE[latestRisk.band]}>{latestRisk.band}</Badge>
-            <span className="tabular text-2xl font-semibold text-content-primary">
+            <span className={stale ? 'opacity-50' : ''}>
+              <Badge tone={RISK_TONE[latestRisk.band]}>{latestRisk.band}</Badge>
+            </span>
+            <span className="font-display tabular-nums text-2xl font-semibold tracking-display text-content-primary">
               {latestRisk.score.toFixed(1)}
             </span>
             <span className="text-sm text-content-muted">risk score</span>
           </div>
-          <div className="text-xs text-content-muted">
-            {/* Coverage and provenance travel with every assessment precisely so
-                a low-coverage or rule-only window is not read as a confident
-                one. Showing the band without them would undo that. */}
-            {(latestRisk.coverage_ratio * 100).toFixed(0)}% window coverage ·{' '}
-            {latestRisk.provenance.toLowerCase().replace(/_/g, ' ')}
-            {latestRisk.gated && ' · gated'}
+          <div className="flex items-center gap-3">
+            {/* The trace: no score without its evidence. */}
+            <Trace
+              sampleCount={latestRisk.sample_count}
+              coverageRatio={latestRisk.coverage_ratio}
+              provenance={latestRisk.provenance}
+            />
+            {latestRisk.gated && <span className="text-xs text-content-muted">gated</span>}
           </div>
         </Panel>
       )}
