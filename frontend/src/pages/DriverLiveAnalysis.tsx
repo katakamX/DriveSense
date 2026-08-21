@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { ObdSummary } from '@/components/obd/ObdSummary';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Panel } from '@/components/ui/Panel';
 import { StatTile } from '@/components/ui/StatTile';
@@ -145,9 +146,12 @@ function ChunkPlayer({ analysis }: { analysis: ObdAnalysis }) {
       </div>
 
       {atEnd && (
-        <p className="mt-4 text-center text-sm text-content-muted" aria-live="polite">
-          …
-        </p>
+        <>
+          <p className="mt-4 text-center text-sm text-content-muted" aria-live="polite">
+            …
+          </p>
+          <ObdSummary chunks={chunks} />
+        </>
       )}
     </div>
   );
