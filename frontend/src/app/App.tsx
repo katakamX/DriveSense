@@ -17,6 +17,7 @@ import { EmployeeVehicles } from '@/pages/EmployeeVehicles';
 import { Home } from '@/pages/Home';
 import { LiveDrive } from '@/pages/LiveDrive';
 import { Login } from '@/pages/Login';
+import { ObdReplay } from '@/pages/ObdReplay';
 import { Signup } from '@/pages/Signup';
 import { TripDetail } from '@/pages/TripDetail';
 
@@ -68,6 +69,14 @@ export function App() {
               element={
                 <RequireRole allow="staff">
                   <EmployeeTrips />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/employee/obd-replay"
+              element={
+                <RequireRole allow="staff">
+                  <ObdReplay />
                 </RequireRole>
               }
             />

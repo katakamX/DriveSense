@@ -61,6 +61,9 @@ export function AppShell({ children }: AppShellProps) {
                 <NavLink to="/employee/trips" className={navLinkClassName}>
                   Trips
                 </NavLink>
+                <NavLink to="/employee/obd-replay" className={navLinkClassName}>
+                  OBD Replay
+                </NavLink>
               </>
             )}
             {admin && (
