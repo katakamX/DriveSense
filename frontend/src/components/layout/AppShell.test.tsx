@@ -13,7 +13,7 @@ import { SessionProvider } from '@/lib/auth/SessionProvider';
 const me = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api/auth', () => ({ me }));
 
-const STAFF_LINKS = ['Review Applications', 'Drivers', 'Vehicles', 'Trips', 'OBD Replay'];
+const STAFF_LINKS = ['Review Applications', 'Drivers', 'Vehicles', 'Trips'];
 const ADMIN_LINKS = ['Users', 'System'];
 const SHARED_LINKS = ['Dashboard', 'Driver Monitor', 'Become a Driver'];
 
